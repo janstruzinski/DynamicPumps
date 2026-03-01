@@ -11,6 +11,7 @@ class BarskePump:
         """A class for sizing and analysis of Barske pump."""
 
         # Diameters
+        self.D_inlet = None # inlet pipe diameter, m
         self.D_0 = None # impeller eye diameter, m
         self.D_1 = None # impeller inlet diameter, m
         self.D_2 = None # impeller outlet diameter, m
@@ -49,20 +50,31 @@ class BarskePump:
 
         # Other
         self.n_blades = None # number of blades
-        self.specific_speed_BEP = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/h)
+        self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/h)
+        self.eta_losses = None  # fraction of dynamic head lost in the diffuser, -
+        self.K_factor = None # factor for prerotation at zero flow as a fraction of inlet tip speed (used in Lock's
+        # analysis method), -
+        self.no_prerotation_Barske = None # boolean whether no prerotation should be assumed in case of head
+        # calculations with Barske/Lobanoff method.  
+        self.flow_coefficient_BEP = None # outlet flow coefficient at BEP, -
+        self.static_head_coefficient_BEP_Barske = None # static head coefficient at BEP for head calculations
+        # with Barske/Lobanoff method, -. It will be different from head coefficients calculated with Lobanoff method.
 
         #TODO Add forces
 
         # Analysis results - dictionary to store analysis inputs and results.
-        self.analysis_results = {"fluid": None, # Fluid object used for analysis, -
+        self.analysis_results = {"method": None, # Method used for analysis, -
+                                 "fluid": None, # Fluid object used for analysis, -
                                  "RPM": None, # Rotations Per Minute, 1 / minute
                                  "w": None,  # Angular speed, rad / s
                                  "mdot": None, # Massflow through pump, kg / s
-                                 "dP": None,  # Pressure rise across the pump, Pa
+                                 "dp": None,  # Pressure rise across the pump, Pa
                                  "Q": None, # Volumetric flow through pump (defined with p_0)
-                                 "H_useful": None, # Useful head of the pump, m
+                                 "H_total_real": None, # Real total head of the pump, m
+                                 "H_static_real": None,  # Real static head of the pump, m
                                  "H_losses": None,  # Head losses of the pump, m
-                                 "H_ideal": None,  # Ideal head of the pump, m
+                                 "H_total_ideal": None,  # Ideal total head of the pump, m
+                                 "H_static_ideal": None,  # Ideal static head of the pump, m
                                  "flow_coefficient_inlet": None, # Flow coefficient at the inlet of the impeller, -
                                  "flow_coefficient_outlet": None, # Flow coefficient in the diffuser throat, -
                                  "head_coefficient": None, # Head coefficient of the pump, -
@@ -71,10 +83,8 @@ class BarskePump:
                                  "P_h_total": None,  # Total hydraulic power, W
                                  "P_total": None,  # Total pump power, W
                                  "P_f": None,  # Power to overcome friction, W
-                                 "eta": None, # Pump efficiency, -
-                                 "eta_losses": None, # fraction of dynamic head lost in the diffuser, -
-                                 "K_factor": None, # factor for prerotation at zero flow as a fraction of inlet tip speed
-                                 # (used in Lock's analysis method), -
+                                 "eta_total": None, # Pump total efficiency, -
+                                 "eta_static": None,  # Pump total efficiency, -
                                  "T_upstream": None, # Upstream temperature, K
                                  "p_upstream": None, # Upstream total (tank/reservoir) pressure, Pa
                                  "rho": None, # Fluid density used for the analysis, kg/m^3
@@ -100,6 +110,7 @@ class BarskePump:
         # Constants
         self.g = 9.80665 # gravitational acceleration m/s^2
         self.CMPS_to_GPM = 15850.323140625 # conversion factor between cubic meters per second and gallons per minute
+        self.feet_to_m = 0.3048 # conversion factor from feet to meter
 
         # Digitized graphs from "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications" by Lock.
         # Used for head analysis with his method.
@@ -118,24 +129,24 @@ class BarskePump:
         # Property to store interpolating function
         self.h_0 = lambda r, n: (h_0_interp_2D([[r, n]])[0] if n <= 16 else h_0_interp_16(r))
         # Now interpolator for C_h graph for radial blades (upper line from Figure 10b)
-        solidity = [0.506, 0.606, 0.704, 0.804, 0.904, 1.003, 1.104, 1.202, 1.301, 1.401, 1.501, 1.603, 1.704, 1.803, 1.903,
-             2.003, 2.104, 2.206, 2.307, 2.406, 2.505]
+        blade_spacing_length_ratio = [0.506, 0.606, 0.704, 0.804, 0.904, 1.003, 1.104, 1.202, 1.301, 1.401, 1.501,
+                                      1.603, 1.704, 1.803, 1.903, 2.003, 2.104, 2.206, 2.307, 2.406, 2.505]
         C_h = [0.995, 0.994, 0.988, 0.980, 0.967, 0.955, 0.942, 0.926, 0.908, 0.890, 0.872, 0.854, 0.837, 0.819, 0.803, 0.787,
              0.772, 0.757, 0.743, 0.729, 0.717]
-        C_h_interp = intrp.interp1d(solidity, C_h, kind="linear", bounds_error=False, fill_value="extrapolate")
+        C_h_interp = intrp.interp1d(blade_spacing_length_ratio, C_h, kind="linear", bounds_error=False, fill_value="extrapolate")
         # Property to store interpolating function
         self.C_h = lambda sigma: np.clip(C_h_interp(sigma), 0.0, 1.0)
 
-    def size_dimensions(self, fluid, RPM, dP, mdot, p_upstream, T_upstream, inlet_sizing_method, diameter_sizing_method,
-                        widths_sizing_method, t_hub, t_LE, t_TE, n_blades=5, diffuser_area_ratio = 4,
+    def size_dimensions(self, fluid, RPM, dp, mdot, p_upstream, T_upstream, inlet_sizing_method, diameter_sizing_method,
+                        widths_sizing_method, t_hub, t_LE, t_TE, D_inlet, n_blades=5, diffuser_area_ratio = 4,
                         diffuser_angle = 8, flow_coefficient_outlet=0.8, D_1_over_D_0=1.1, D_5_over_D_1 = 1.1,
                         alpha_1 = 90, v_0=3.6576, u_1=45.72, flow_coefficient_inlet=0.07, L_1_over_D_1=0.25,
-                        r_factor = 0.8, eta_losses=0.194, K_factor=0.17):
+                        r_factor = 0.8, eta_losses=0.194, K_factor=0.17, no_prerotation = False):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
         :param fluid: Object representing fluid used for the sizing of the Barske Pump.
         :param float or int RPM: Design Rotations Per Minute at BEP, 1 / minute
-        :param float or int dP: Pressure rise across the pump, Pa
+        :param float or int dp: Pressure rise across the pump, Pa
         :param float or int mdot: Massflow through the pump, kg/s
         :param float or int p_upstream: Upstream total (tank/reservoir) pressure, Pa
         :param float or int T_upstream: Upstream temperature, K
@@ -159,6 +170,7 @@ class BarskePump:
              calculated from L_1 such that constant meridional velocity is achieved.
         :param float or int t_hub: Hub thickness, m
         :param float or int t_LE: Leading edge (suction side) thickness, m
+        :param float or int D_inlet: Inlet pipe diameter, m
         :param float or int t_TE: Trailing edge (suction side) thickness, m
         :param int n_blades: Number of blades. By default, 5, which is within a range of 3-6 often mentioned for Barske
             impellers.
@@ -186,11 +198,13 @@ class BarskePump:
             Pumps".
         :param float or int r_factor: Semi-empirical factor used in "Rocketdyne" option for widths_sizing_method, which
             is the flow area to meridional area ratio. By default, a value of 0.8 recommended by Rocketdyne.
-        :param float or int eta_losses: Fraction of dynamic head lost in the diffuser. By default, 0.194. This is the
+        :param float or int eta_losses: Fraction of dynamic head lost in the diffuser, -. By default, 0.194. This is the
             value used by Lock in "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications"
         :param float or int K_factor: Factor for prerotation at zero flow as a fraction of inlet tip speed, used for
             "Lock" option for diameter_sizing_method. By default, 0.17. Middle value from the range used in
              "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications".
+         :param bool no_prerotation: Determines where no prerotation should be assumed for impeller head calculations
+            when diameter_sizing_method is "Lobanoff", True or False. By default, False, as recommended in Lobanoff.
         """
         # Get fluid density
         rho = fluid.get_density(p_upstream, T_upstream) # kg/s
@@ -198,10 +212,14 @@ class BarskePump:
         # Calculate volumetric flow and the required head. When calculating volumetric flow, it is assumed fluid is
         # incompressible.
         Q_design = mdot / rho  # m^3 / s
-        H_required = functions.get_H_from_dP(fluid, dP, p_upstream, T_upstream)
+        H_required = functions.get_H_from_dp(fluid, dp, p_upstream, T_upstream)
+
+        # Calculate pressure in the inlet pipe
+        self.D_inlet = D_inlet
+        p_static_inlet = p_upstream - 0.5 * rho * (4 * Q_design/(np.pi * self.D_inlet**2))**2
 
         # Calculate specific speed and assign number of blades
-        self.specific_speed_BEP = RPM * np.sqrt(Q_design) / (H_required**0.75)
+        self.specific_speed = RPM * np.sqrt(Q_design) / (H_required**0.75)
         self.n_blades = n_blades
 
         # Calculate angular speed of rotation
@@ -245,9 +263,15 @@ class BarskePump:
         self.alpha_1 = alpha_1 # degrees
         self.A_4_over_A_3 = diffuser_area_ratio
         self.alpha_diffuser = diffuser_angle # degrees
+        self.eta_losses = eta_losses # -
+        self.K_factor = K_factor # -
+        self.flow_coefficient_BEP = flow_coefficient_outlet # -
+        self.no_prerotation_Barske = no_prerotation # - 
 
         #TODO Take thicknesses into account
         #TODO Incorporate splitter blades
+        #TODO Add option with D_4
+        # TODO Add coefficients
 
         # Find outlet diameter that satisfies requirements
         # First define a function that calculates impeller's dimensions and H as a function of D_2
@@ -256,7 +280,7 @@ class BarskePump:
             u_2 = D_2 * omega / 2 # m/s
 
             # Size the diffuser from the assigned outlet flow coefficient
-            v_3 = u_2 * flow_coefficient_outlet # m/s
+            v_3 = u_2 * self.flow_coefficient_BEP # m/s
             D_3 = np.sqrt(4 * Q_design / (np.pi * v_3)) # m
             A_3 = np.pi * (D_3 / 2)**2 # m^2
             A_4 = self.A_4_over_A_3 * A_3 # m^2
@@ -265,8 +289,8 @@ class BarskePump:
 
             # If blade width sizing method is Gulich, first get L_2 and then get L_1
             if widths_sizing_method == "Gulich":
-                L_2 = (0.02 + 0.5 * self.specific_speed_BEP/100 - 0.03 * (self.specific_speed_BEP/100)**2
-                       - 0.04 * (self.specific_speed_BEP/100)**3) * D_2 # m
+                L_2 = (0.02 + 0.5 * self.specific_speed/100 - 0.03 * (self.specific_speed/100)**2
+                       - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 L_1 = D_2 * L_2 / self.D_1 # m
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
             elif widths_sizing_method in ("Barske", "Rocketdyne"):
@@ -292,32 +316,106 @@ class BarskePump:
             # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
             # clearance is derived.
             s_ax = min(0.01 * D_2, 0.04 * 0.0254)
-            s_rad = (0.008 * (D_2 / 0.0254) + 0.072) * 0.0254
+            s_rad = self.calcualate_axial_clearance(D_2)
 
             # Analyse performance either with Lobanoff or Lock method
-            H = ...
+            if diameter_sizing_method == "Lock":
+                H = self.analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream)[0]
+            elif diameter_sizing_method == "Lobanoff":
+                H = self.analysis_Lobanoff(u_2, u_1, Q_design, self.flow_coefficient_BEP, self.no_prerotation_Barske)
+            else:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
-            return H, D_3, D_4, A_3, A_4, L_diffuser, L_1, L_2, alpha_0, alpha_2, s_ax, s_rad
+            return H, u_2, D_3, D_4, A_3, A_4, L_diffuser, L_1, L_2, alpha_0, alpha_2, s_ax, s_rad
 
         # Now solve the function for D_2 and get all other remaining dimensions
         D_2_estimate = np.sqrt((4 * self.g * H_required) / (0.7 * omega**2))
         self.D_2 = opt.toms748(f=lambda x: H_required - get_impeller_head(x), a=self.D_1 * 1.1, b=3*D_2_estimate)[0]
-        (H_design, self.D_3, self.D_4, self.A_3, self.A_4, self.L_diffuser, self.L_1, self.L_2, self.alpha_0,
+        (H_design, u_2, self.D_3, self.D_4, self.A_3, self.A_4, self.L_diffuser, self.L_1, self.L_2, self.alpha_0,
          self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+
+        # TODO Add Barske coefficient
+        # Regardless with what method diameter was sized, obtain static head coefficient for Lobanoff method.
+        # This is necessary in case the sized geometry is analyzed in the future with methods proposed by Lobanoff in
+        # "Centrifugal Pumps" or Barske in "The Design of Open Impeller Centrifugal Pumps". The head coefficient
+        # follows the convention in "Centrifugal Pumps" by Gulich.
+        self.static_head_coefficient_BEP_Barske = self.analysis_Lobanoff(u_2, u_1, Q_design, self.flow_coefficient_BEP,
+                                                                         self.no_prerotation_Barske)[2]
 
         # With all dimensions known, full analysis can be performed to get more data about flow and performance
         self.analysis_results_design = self.analyse(...)
 
-    def analysis_Lock(self):
-        # First find h_0 and C_h factors from digitalized Figure 10a and Figure 10b from Lock. To do so, ratio of
-        # impeller radii and its solidity need to be found.
-        h_0 = ...
-        C_h = ...
-        H = ...
-        return H
+        # Finall, design can be verified
+        self.verify_design()
 
-    def analysis_Lobanoff(self):
-        ...
+    def analysis_Lock(self, u_2, Q, fluid, p_0, T_0):
+        #TODO add docstring.
+
+        # First find h_0 and C_h factors from digitalized Figure 10a and Figure 10b from Lock. To do so, ratio of
+        # impeller radii and blade spacing to length ratio need to be found.
+        r_ratio = self.D_2 / self.D_1
+        blade_spacing_length_ratio = (self.D_1 * np.pi / self.n_blades) / ((self.D_2 - self.D_1) / 2)
+        h_0 = self.h_0(r_ratio, self.n_blades)
+        C_h = self.C_h(blade_spacing_length_ratio)
+
+        # Now determine Q_ops for which peak power value occurs.
+        dummy_1a = (h_0 * u_2**2) / self.g
+        dummy_1b = self.eta_losses * 24 * (self.g * self.D_3**4 * np.pi**2)**(-1) * (1 - (self.D_3 / self.D_4)**2)**2
+        dummy_1c = 24 * (self.D_4**(-4) - self.D_inlet**(-4)) / (np.pi**2 * self.g)
+        Q_ops = np.sqrt(dummy_1a / (dummy_1b + dummy_1c)) # m^3 / s
+
+        # Now calculate ideal total head
+        H_total_ideal = dummy_1a - C_h * self.K_factor * ((u_2**2) / self.g) * (self.D_1 / self.D_2) * (1 - (Q / Q_ops))
+        # Now calculate ideal static head
+        H_static_ideal = H_total_ideal + (- dummy_1c / 3) * Q**2
+        # Calculate diffuser losses
+        H_loss = (dummy_1b / 3) * Q**2
+        # Then calculate real total head
+        H_total_real = H_total_ideal - H_loss
+        # Now calculate real static head
+        H_static_real = H_static_ideal - H_loss
+        # Also determine whether Q is above the maximum volumetric flow. First determine head at vapor pressure wrt.
+        # inlet pressure.
+        H_vp = functions.get_H_from_dp(fluid=fluid, pressure_rise=fluid.get_vp(T_0) - p_0, p_0=p_0, T_0=T_0)
+        # Now determine the head in the throat wrt. inlet pressure
+        H_3 = H_static_real + H_loss - (8 * Q**2) * (self.D_3**(-4) - self.D_4**(-4)) / (self.g * np.pi**2)
+        # If that head is equal or smaller than H_3, the H-Q curve breaks down according to Lock.
+        if H_3 <= H_vp:
+            # H_loss becomes the total ideal head
+            H_loss = H_total_ideal
+            # Total real head becomes zero
+            H_total_real = 0
+            # Static head is then just the difference in dynamic heads
+            H_static_real = (- dummy_1c / 3) * Q**2
+        # Now return all the results
+        return H_static_real, H_total_real, H_loss, H_total_ideal
+
+    def analysis_Lobanoff(self, u_2, u_1, Q, flow_coefficient, no_prerotation):
+        # TODO add docstring.
+        # TODO double check dynamic head calculations.
+
+        # Calculate head due to forced vortex
+        if no_prerotation == True:
+            Hs = (u_2**2 - u_1**2) / (2 * self.g)
+        else:
+            Hs = u_2**2 / (2 * self.g)
+        # Now calculate the static recovery from the dynamic head
+        Hd = (1 - self.eta_losses) * ((u_2 * flow_coefficient)**2 / (2 * self.g)) * (1 - (self.A_3 / self.A_4)**2)
+        # Now calculate the real total head
+        V_4 = 4 * Q / (np.pi * self.D_4**2)
+        H_total_real = Hs + Hd + (V_4**2) / (2 * self.g)
+        # Finally calculate the real static head
+        V_inlet = 4 * Q / (np.pi * self.D_inlet**2)
+        H_static_real = H_total_real - (V_4**2) / (2 * self.g) + (V_inlet**2) / (2 * self.g)
+        # Calculate the total and static head coefficients (as defined in Gulich)
+        head_coefficient_static = 2 * self.g * H_static_real / (u_2**2)
+        head_coefficient_total = 2 * self.g * H_total_real / (u_2**2)
+        return H_static_real, H_total_real, head_coefficient_static, head_coefficient_total
+
+    def calcualate_axial_clearance(self, D_2):
+        # TODO add docstring.
+        return (0.008 * (D_2 / 0.0254) + 0.072) * 0.0254
 
 
     def assign_dimensions(self):
@@ -326,7 +424,35 @@ class BarskePump:
 
     def verify_design(self):
         """A method to verify the design of the Barske pump"""
-        ...
+        # Verify if axial velocity at the inlet is within range given by Barske
+        if not (5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m):
+            print(f"Impeller eye diameter v0 is {self.analysis_results_design["v_0"]} m/s."
+                  f" It should be between {5*self.feet_to_m} m/s and {12*self.feet_to_m} m/s.")
+        # Verify if inner blade velocity is smaller as recommended by Barske
+        if self.analysis_results_design["u_1"] > 150 * self.feet_to_m:
+            print(f"Inner blade speeed u1 is {self.analysis_results_design["u_1"]} m/s."
+                  f" It should be <= {150 * self.feet_to_m} m/s.")
+        # Verify if diameter ratio is greater as recommended by Barske
+        if self.D_2 / self.D_1 <= 1.5:
+            print(f"Diameter ratio D2/D1 is {self.D_2 / self.D_1}."
+                  f"It should be > 1.5.")
+        # Verify axial widths
+        if self.L_1 < 0.25 * self.D_1:
+            print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000} mm."
+                  f" It should be above {0.25 * self.D_1 * 1000} mm.")
+        if self.L_2 < self.L_1 * self.D_1 / self.D_2:
+            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
+                  f" It should be above {self.L_1 * self.D_1 / self.D_2 * 1000} mm.")
+        # Verify that clearances are within values recommended by Barske
+        if self.s_rad > min(0.01 * self.D_2, 0.04 * 0.0254):
+            print(f"Radial clearance s_rad is {self.s_rad * 1000} mm."
+                  f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000} mm.")
+        if self.s_ax > self.calcualate_axial_clearance(self.D_2):
+            print(f"Axial clearance s_ax is {self.s_ax * 1000} mm."
+                  f" It should be below {self.calcualate_axial_clearance(self.D_2) * 1000} mm")
+        if self.L_2 < 3 * self.s_ax:
+            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
+                  f" It should be greater than 3s_ax = {3 * self.s_ax * 1000} mm.")
 
     def analyse(self):
         """A method to analyze pump's performance for given geometry"""
