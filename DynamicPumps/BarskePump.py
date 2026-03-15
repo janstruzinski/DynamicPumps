@@ -1,4 +1,3 @@
-import copy
 import warnings
 import numpy as np
 import functions
@@ -354,14 +353,14 @@ class BarskePump:
             # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
             # clearance is derived.
             s_ax = min(0.01 * D_2, 0.04 * self.inch_to_m)
-            s_rad = self.calcualate_axial_clearance(D_2)
+            s_rad = self.__calcualate_axial_clearance(D_2)
 
             # Analyse performance either with Lobanoff or Lock method
             if diameter_sizing_method == "Lock":
-                H = self.analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
-                                       self.K_factor_design)[0]
+                H = self.__analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
+                                         self.K_factor_design)[0]
             elif diameter_sizing_method == "Lobanoff":
-                H = self.analysis_Lobanoff(u_1, u_2, Q_design)[0]
+                H = self.__analysis_Lobanoff(u_1, u_2, Q_design)[0]
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
@@ -382,12 +381,12 @@ class BarskePump:
         # "The Design of Open Impeller Centrifugal Pumps". The head coefficient follows the convention in
         # "Centrifugal Pumps" by Gulich.
         self.static_head_coefficient_BEP_Barske =\
-            self.analysis_Lobanoff(u_1, u_2, Q_design)[2]
+            self.__analysis_Lobanoff(u_1, u_2, Q_design)[2]
 
         # For informational purposes, obtain static head coefficient for Lock's method as well
         self.static_head_coefficient_BEP_Lock =\
-            self.analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
-                               self.K_factor_design)[5]
+            self.__analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
+                                 self.K_factor_design)[5]
 
         # With all dimensions known, full analysis can be performed to get more data about flow and performance
         if diameter_sizing_method is "Lobanoff":
@@ -400,7 +399,7 @@ class BarskePump:
         # Finally, design can be verified
         self.verify_design()
 
-    def analysis_Lock(self, u_2, Q, fluid, p_inlet, T_inlet, eta_losses, K_factor):
+    def __analysis_Lock(self, u_2, Q, fluid, p_inlet, T_inlet, eta_losses, K_factor):
         """A method to analyse the pump using Lock's method presented in 'A Forced
             Vortex Pump for High Speed, High Pressure, Low Flow Applications'.
 
@@ -475,7 +474,7 @@ class BarskePump:
         return (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
                 head_coefficient_total, H_s)
 
-    def analysis_Lobanoff(self, u_1, u_2, Q):
+    def __analysis_Lobanoff(self, u_1, u_2, Q):
         """A method to analyse the pump at design point using eq.11-22 from 'Centrifugal Pumps' by Lobanoff et al.
 
         :param float or int u_1: Velocity of the leading edge of the impeller, m/s
@@ -511,7 +510,7 @@ class BarskePump:
         head_coefficient_total = 2 * self.g * H_total_real / u_2**2
         return H_static_real, H_total_real, head_coefficient_static, head_coefficient_total
     
-    def analysis_Barske(self, u_1, u_2, v_inlet, v_3, v_4, no_prerotation):
+    def __analysis_Barske(self, u_1, u_2, v_inlet, v_3, v_4, no_prerotation):
         """A method to analyse the pump using traditional Barske approach with head coefficient. Unlike
          method analysis_Lobanoff, can be used off design point. It is asummed in this approach that head coefficient
          is constant.
@@ -585,7 +584,7 @@ class BarskePump:
         return (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
                 head_coefficient_total, H_s)
 
-    def calcualate_axial_clearance(self, D_2):
+    def __calcualate_axial_clearance(self, D_2):
         """A method to calculate axial clearance of the impeller. From the empirical data from Barske (pg. 7 of
         "The Design of Open Impeller Centrifugal Pumps"), a linear equation for radial clearance was derived to do so.
 
@@ -665,10 +664,10 @@ class BarskePump:
         # Calculate impeller ideal heads and coefficients depending on the method chosen
         if analysis_method is "Lock":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
-             head_coefficient_total, H_s) = self.analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
+             head_coefficient_total, H_s) = self.__analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
         elif analysis_method is "Barske":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
-             head_coefficient_total, H_s) = self.analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)
+             head_coefficient_total, H_s) = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)
         else:
             warnings.simplefilter("error", UserWarning)
             warnings.warn("analysis_method must be 'Lock' or 'Barske'")
@@ -741,9 +740,9 @@ class BarskePump:
             print(f"Radial clearance s_rad is {self.s_rad * 1000} mm."
                   f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000} mm.")
             self.design_checks["radial_clearance"] = False
-        if self.s_ax > self.calcualate_axial_clearance(self.D_2):
+        if self.s_ax > self.__calcualate_axial_clearance(self.D_2):
             print(f"Axial clearance s_ax is {self.s_ax * 1000} mm."
-                  f" It should be below {self.calcualate_axial_clearance(self.D_2) * 1000} mm")
+                  f" It should be below {self.__calcualate_axial_clearance(self.D_2) * 1000} mm")
             self.design_checks["axial_clearance"] = False
         if self.L_2 < 3 * self.s_ax:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
