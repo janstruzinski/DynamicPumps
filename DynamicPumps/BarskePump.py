@@ -161,7 +161,7 @@ class BarskePump:
                         no_prerotation = False, D_diffuser_outlet = None):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
-        :param fluid: Object representing fluid used for the sizing of the Barske Pump.
+        :param Fluid fluid: Fluid object representing fluid used for the sizing of the Barske Pump.
         :param float or int RPM: Design Rotations Per Minute at BEP, 1 / minute
         :param float or int dp: Pressure rise across the pump, Pa
         :param float or int mdot: Massflow through the pump, kg/s
@@ -405,7 +405,7 @@ class BarskePump:
 
         :param float or int u_2: Tip velocity of the impeller, m/s
         :param float or int Q: Volumetric flow, m^3 / s.
-        :param fluid: Object representing fluid used for the analysis.
+        :param Fluid fluid: Object representing fluid used for the analysis.
         :param float or int p_inlet: Static pressure in the inlet pipe, Pa.
         :param float or int T_inlet: Static temperature in the inlet pipe, K.
         :param float or int eta_losses: Fraction of dynamic head lost in the diffuser, -.
@@ -599,7 +599,7 @@ class BarskePump:
                 no_prerotation=None):
         """A method to analyze pump's performance for given operating conditions.
 
-        :param fluid: Object representing fluid used for the sizing of the Barske Pump.
+        :param Fluid fluid: Object representing fluid used for the sizing of the Barske Pump.
         :param float or int mdot: Massflow through the pump, kg/s
         :param float or int RPM: Design Rotations Per Minute at BEP, 1 / minute
         :param float or int p_upstream: Upstream total (tank/reservoir) pressure, Pa
