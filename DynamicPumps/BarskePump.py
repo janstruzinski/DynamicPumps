@@ -21,9 +21,10 @@ class BarskePump:
         self.D_2 = None # impeller outlet diameter, m
         self.D_3 = None # diffuser throat diameter, m
         self.D_4 = None # diffuser outlet diameter, m
-        self.D_5 = None # hub diameter, m
+        self.D_hub = None # hub diameter, m
         self.D_1_over_D_0 = None # ratio of D_1 to D_0, -
-        self.D_5_over_D_1 = None # ratio of D_5 to D_1, -
+        self.D_hub_over_D_1 = None # ratio of D_hub to D_1, -
+        self.D_shaft = None # shaft diameter, m
 
         # Widths & lengths
         self.L_1 = None # impeller width (axial length) at the inlet, m
@@ -52,8 +53,22 @@ class BarskePump:
         self.alpha_2 = None # sharpening angle of the radial blade wrt. tangent of D_1, degrees
         self.alpha_diffuser = None # diffuser full angle, degrees
 
+        # Expeller
+        self.expeller = None # boolean whether expeller is used
+        self.D_exp = None # diameter of the expeller, m
+        self.h_exp = None # height of the expeller, m
+        self.t_exp_1 = None # thickness of the expeller blades near the shaft, m
+        self.t_exp_2 = None  # thickness of the expeller blades near the outlet, m
+        self.s_ax_exp = None # axial clearance of the expeller, m
+        self.s_rad_exp = None  # axial clearance of the expeller, m
+        self.n_exp = None # number of expeller blades, -
+        self.D_exp_over_D_2 = None # D_exp over D_2, -
+        self.h_exp_over_D_2 = None # h_exp over D_2, -
+        self.s_ax_exp_over_h_exp = None  # s_ax_exp over h_ex, -
+        self.s_rad_exp_over_D_exp = None # s_rad_exp over D_exp, -
+
         # Other
-        self.n_blades = None # number of blades
+        self.n_blades = None # number of blades, -
         self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/h)
         self.eta_losses_design = None  # fraction of dynamic head lost in the diffuser used for sizing, -.
         self.K_factor_design = None # factor for prerotation at zero flow as a fraction of inlet tip speed used in
@@ -107,6 +122,9 @@ class BarskePump:
                                         "v_3": None, # Fluid velocity in the diffuser throat, m/s
                                         "v_4": None, # Fluid velocity at the diffuser outlet, m/s
                                         "T_4": None,  # Outlet temperature, K
+                                        "F_ax": None, # Axial force, N
+                                        "F_rad": None,  # Radial force, N
+                                        "T": None,  # Torque, N
                                         }
 
         # Dictionary with flags whether the best practices/guidelines are satisfied
@@ -115,9 +133,14 @@ class BarskePump:
                               "diameter_ratio": None, # Check whether impeller diameters ratio guideline is satisfied
                               "LE_width": None, # Check whether LE width guideline is satisfied
                               "TE_width": None, # Check whether TE width guideline is satisfied
-                              "radial_clearance": None, # Check whether radial clearance is satisfied
-                              "axial_clearance": None,  # Check whether axial clearance is satisfied
-                              "TE_width_clearance_ratio": None # Check whether TE width to clearance ratio is satisfied
+                              "radial_clearance": None, # Check whether radial clearance guideline is satisfied
+                              "axial_clearance": None,  # Check whether axial clearance guideline is satisfied
+                              "TE_width_clearance_ratio": None, # Check whether TE width to clearance ratio guideline is
+                              # satisfied
+                              "expeller_height": None,# Check whether expeller blade heigth guideline is satisfied
+                              "expeller_clearance": None, # Check whether expeller axial clearance guideline is
+                              # satisfied
+                              "expeller_width": None  # Check whether expeller blade width guideline is satisfied
                               }
 
         # Constants
@@ -154,11 +177,13 @@ class BarskePump:
         self.C_h = lambda sigma: np.clip(C_h_interp(sigma), 0.0, 1.0)
 
     def size_dimensions(self, fluid, RPM, dp, mdot, p_upstream, T_upstream, inlet_sizing_method, diameter_sizing_method,
-                        widths_sizing_method, outlet_sizing_method, t_hub, t_LE, t_TE, D_inlet, n_blades = 5,
-                        diffuser_area_ratio = 4, diffuser_angle = 8, flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1,
-                        D_5_over_D_1 = 1.1, alpha_1 = 90, v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07,
-                        L_1_over_D_1 = 0.25, r_factor = 0.8, eta_losses = 0.194, K_factor = 0.17,
-                        no_prerotation = False, D_diffuser_outlet = None):
+                        widths_sizing_method, outlet_sizing_method, hub_sizing_method, t_hub, t_LE, t_TE, D_inlet,
+                        D_shaft, n_blades = 5, diffuser_area_ratio = 4, diffuser_angle = 8,
+                        flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1, D_hub_over_D_1 = 1.1, alpha_1 = 90, s_ax_over_D_2 = 0.01,
+                        v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07, L_1_over_D_1 = 0.25, r_factor = 0.8,
+                        eta_losses = 0.194, K_factor = 0.17, no_prerotation = False, D_diffuser_outlet = None,
+                        expeller = False, D_exp_over_D_2 = 1, h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2,
+                        s_rad_exp_over_D_exp = 0.01):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
         :param Fluid fluid: Fluid object representing fluid used for the sizing of the Barske Pump.
@@ -182,17 +207,21 @@ class BarskePump:
             Vortex Pump for High Speed, High Pressure, Low Flow Applications" by Lock will be used.
         :param string widths_sizing_method: Method used for sizing of the pump widths (axial lengths), either
             "Gulich", "Rocketdyne" or "diameter fraction". If "Gulich", impeller outlet width L_2 is calculated from
-             equation 7-1a from "Centrifugal Pumps" by Gulich. L_1 is then calculated such that constant meridional
-             velocity is achieved. If "Rocketdyne", then impeller inlet width L_1 is calculated from eq. 26 from
+            equation 7-1a from "Centrifugal Pumps" by Gulich. L_1 is then calculated such that constant meridional
+            velocity is achieved. If "Rocketdyne", then impeller inlet width L_1 is calculated from eq. 26 from
             "Rotating And Positive-Displacement For Low-Thrust Rocket Engines Pumps" by Rocketdyne.
-             If "diameter fraction", L_1 is calculated from assigned L_1_over_D_1. In both of these options, L_2 is then
-             calculated from L_1 such that constant meridional velocity is achieved.
+            If "diameter fraction", L_1 is calculated from assigned L_1_over_D_1. In both of these options, L_2 is then
+            calculated from L_1 such that constant meridional velocity is achieved.
         :param string outlet_sizing_method: Method used for sizing the diffuser, either "area ratio" or "outlet diameter".
              If "area ratio", diffuser_area_ratio will be used to calculate outlet diameter. If "outlet diameter", given
-              outlet diameter D_4 will be assigned and diffuser_area_ratio will be calculated.
+             outlet diameter D_4 will be assigned and diffuser_area_ratio will be calculated.
+        :param string hub_sizing_method: Method used for sizing the hub diameter, either "diameter fraction" or
+            "outlet diameter". If "diameter fraction", D_hub_over_D_1 will be used to calculate hub diameter. If "outlet diameter", given
+             outlet diameter D_2 will be assigned and D_hub_over_D_1 will be calculated.
         :param float or int t_hub: Hub thickness, m
         :param float or int t_LE: Leading edge (suction side) thickness, m
         :param float or int D_inlet: Inlet pipe diameter, m
+        :param float or int D_shaft: Shaft diameter, m
         :param float or int t_TE: Trailing edge (suction side) thickness, m
         :param int n_blades: Number of blades. By default, 5, which is within a range of 3-6 often mentioned for Barske
             impellers.
@@ -203,15 +232,18 @@ class BarskePump:
             fluid velocity in the throat v_3 to the outlet blade speed u_2. By default, 0.8.
         :param float or int D_1_over_D_0: Ratio of D_1 (impeller inner diameter) to D_0 (impeller eye diameter).
             By default, 1.1.
-        :param float or int D_5_over_D_1: Ratio of D_5 (hub diameter) to D_1 (impeller inner diameter). By default, 1.1.
+        :param float or int D_hub_over_D_1: Ratio of D_hub (hub diameter) to D_1 (impeller inner diameter).
+            By default, 1.1. Used in the case hub_sizing_method is "diameter fraction".
         :param float or int alpha_1: impeller blade backward edge angle wrt. rotation axis, degrees. By default,
             90 degrees.
+        :param float s_ax_over_D_2: Axial clearance s_ax over impeller diameter D_2. By default, 0.01.
+            This is a recommended value by Barske in "The Design of Open Impeller Centrifugal Pumps".
         :param float or int v_0: Impeller eye axial velocity, used in "flow velocity" option for inlet_sizing_method.
             By default, 3.6576 m/s. Default value taken from value of 12 ft/s, which is the upper recommended limit by
-             Barske in "The Design of Open Impeller Centrifugal Pumps".
+            Barske in "The Design of Open Impeller Centrifugal Pumps".
         :param float or int u_1: Impeller inlet blade speed, used in "blade velocity" option for inlet_sizing_method.
             By default, 45.72 m/s. Default value taken from value of 150 ft/s, which is the upper recommended limit by
-             Barske in "The Design of Open Impeller Centrifugal Pumps".
+            Barske in "The Design of Open Impeller Centrifugal Pumps".
         :param float or int flow_coefficient_inlet: Flow coefficient at the inlet, used in "flow coefficient" option for
             inlet_sizing_method. It is the ratio of the axial fluid velocity at the impeller inlet v_1ax to the inlet
             blade speed u_1. By default, 0.07, which is the recommended value in "Rotating And Positive-Displacement For
@@ -225,10 +257,19 @@ class BarskePump:
             value used by Lock in "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications"
         :param float or int K_factor: Factor for prerotation at zero flow as a fraction of inlet tip speed, -. Used for
             "Lock" option for diameter_sizing_method. By default, 0.17. Middle value from the range used in
-             "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications".
-         :param bool no_prerotation: Boolean that determines where no prerotation should be assumed for impeller head
+            "A Forced Vortex Pump for High Speed, High Pressure, Low Flow Applications".
+        :param bool no_prerotation: Boolean that determines where no prerotation should be assumed for impeller head
             calculations when diameter_sizing_method is "Lobanoff", True or False. By default, False, as recommended in
             Lobanoff.
+        :param bool expeller: Boolean whether expeller is used with the impeller, True or False. By default, False.
+        :param float or int D_exp_over_D_2: Diameter of the expeller D_exp over diameter of the impeller D_2.
+            By default, 1.
+        :param float h_exp_over_D_2: Height of the expeller blades h_exp over impeller diameter D_2. By default, 0.02.
+            This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
+        :param float s_ax_exp_over_h_exp: Ratio of expeller axial clearance s_ax_exp to its blade height h_exp.
+            By default, 0.2. This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
+        :param float s_rad_exp_over_D_exp: Ratio of expeller radial clearance s_rad_exp to its diameter D_exp.
+            By default, 0.01.
         """
         # Fist get fluid density
         rho = fluid.get_density(p_upstream, T_upstream) # kg/s
@@ -275,12 +316,16 @@ class BarskePump:
             warnings.warn("inlet_sizing_method must be 'Lobanoff', 'flow velocity', 'blade velocity' or"
                           " 'flow coefficient'")
 
-        # Size hub diameter. If alpha_1 is not 90 degrees and D_5_over_D_1 is different from 1, it will be changed to 1.
-        if alpha_1 != 90 and D_5_over_D_1 != 1:
-            warnings.warn("Alpha_1 is not 90 degrees. To ensure feasible geometry, D_5_over_D_1 is set to 1.")
-            D_5_over_D_1 = 1
-        self.D_5_over_D_1 = D_5_over_D_1
-        self.D_5 = self.D_5_over_D_1 * self.D_1 # m
+        # If alpha_1 is not 90 degrees and D_hub_over_D_1 is different from 1, alpha_1 will be changed to 90 degrees.
+        if alpha_1 != 90 and (hub_sizing_method == "outlet diameter" or D_hub_over_D_1 != 1):
+            warnings.warn("Alpha_1 is not 90 degrees, but D_hub_over_D_1 is not 1."
+                          " To ensure feasible geometry, alpha_1 is set to 90 degrees.")
+            alpha_1 = 90 # deg
+        # If expeller is used and alpha_1 is not 90 degrees, it will be also set to 90 degrees to keep geometry feasible
+        elif alpha_1 != 90 and expeller:
+            warnings.warn("Alpha_1 is not 90 degrees, but expeller is used."
+                          " To ensure feasible geometry, alpha_1 is set to 90 degrees.")
+            alpha_1 = 90 # deg
 
         # Assign thicknesses and other known quantities
         self.t_0 = t_hub # m
@@ -293,6 +338,7 @@ class BarskePump:
         self.flow_coefficient_BEP = flow_coefficient_outlet # -
         self.no_prerotation_design = no_prerotation # -
         self.A_4_over_A_3 = diffuser_area_ratio # -
+        self.D_shaft = D_shaft # m
 
         # Find outlet diameter that satisfies requirementsa
         # First define a function that calculates impeller's dimensions and H as a function of D_2
@@ -348,12 +394,10 @@ class BarskePump:
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
             alpha_2 = np.arctan((Q_design / (L_1 * np.pi * self.D_1)) / u_1) * 180 / np.pi # degrees
 
-            # Calculate axial and radial clearances between the casing and the impeller. From Barske (pg. 7 of
-            # "The Design of Open Impeller Centrifugal Pumps"), it should be 1% of D_2, but should not be greater than
-            # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
-            # clearance is derived.
-            s_ax = min(0.01 * D_2, 0.04 * self.inch_to_m)
-            s_rad = self.__calcualate_axial_clearance(D_2)
+            # Calculate axial and radial clearances between the casing and the impeller.
+            s_ax = s_ax_over_D_2 * D_2 # m
+            # Radial clearance is calculated such that centerline of the diffuser throat is at D_2
+            s_rad = D_3 / 2 # m
 
             # Analyse performance either with Lobanoff or Lock method
             if diameter_sizing_method == "Lock":
@@ -388,6 +432,55 @@ class BarskePump:
             self.__analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
                                  self.K_factor_design)[5]
 
+        # Size the hub. First if diameter fraction method is used.
+        if hub_sizing_method == "diameter fraction":
+            self.D_hub_over_D_1 = D_hub_over_D_1
+            self.D_hub = self.D_hub_over_D_1 * self.D_1  # m
+        # Then if outlet diameter method is used.
+        elif hub_sizing_method == "outlet diameter":
+            self.D_hub = self.D_2  # m
+            self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
+        # Raise error otherwise
+        else:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
+
+        # Size the expeller. If not used, its geometry is None.
+        if not expeller:
+            self.expeller = False
+            self.D_exp = None
+            self.h_exp = None
+            self.t_exp_1 = None
+            self.t_exp_2 = None
+            self.s_ax_exp = None
+            self.n_exp = None
+            self.D_exp_over_D_2 = None
+            self.h_exp_over_D_2 = None
+            self.s_ax_exp_over_h_exp = None
+            self.s_rad_exp = None
+            self.s_rad_exp_over_D_exp = None
+        # Size the expeller if it is used
+        if expeller:
+            self.expeller = True
+            self.D_exp = D_exp_over_D_2 * self.D_2 # m
+            # If D_exp is smaller than D_hub, it will be set to be equal to it.
+            if self.D_exp < self.D_hub:
+                self.D_exp = self.D_hub # m
+                D_exp_over_D_2 = self.D_exp / self.D_2 # -
+                warnings.warn("Expeller diameter is smaller than hub diameter."
+                              " To ensure supported geometry, D_exp is set to D_hub.")
+            self.h_exp = h_exp_over_D_2 * self.D_2 # m
+            # Thicknesses are chosen to mach thickness of the blades based on linear extrapolation/ interpolation.
+            self.t_exp_1 = self.t_1 + (self.t_2 - self.t_1) * (self.D_shaft - self.D_1) / (self.D_2 - self.D_1)
+            self.t_exp_2 = self.t_1 + (self.t_2 - self.t_1) * (self.D_exp - self.D_1) / (self.D_2 - self.D_1)
+            self.n_exp = self.n_blades # -
+            self.D_exp_over_D_2 = D_exp_over_D_2 # -
+            self.h_exp_over_D_2 = h_exp_over_D_2 # -
+            self.s_ax_exp = s_ax_exp_over_h_exp * self.h_exp # m
+            self.s_ax_exp_over_h_exp = s_ax_exp_over_h_exp # -
+            self.s_rad_exp = s_rad_exp_over_D_exp * self.D_exp # m
+            self.s_rad_exp_over_D_exp = s_rad_exp_over_D_exp # -
+
         # With all dimensions known, full analysis can be performed to get more data about flow and performance
         if diameter_sizing_method is "Lobanoff":
             analysis_method = "Lobanoff"
@@ -396,6 +489,10 @@ class BarskePump:
         self.analysis_results_design = self.analyse(fluid, mdot, RPM, p_upstream, T_upstream, analysis_method,
                                                     K_factor, eta_losses, no_prerotation)
 
+        # Print geometry
+        self.print_dimensions()
+        # Print analysis results
+        self.print_analysis_results(self.analysis_results_design)
         # Finally, design can be verified
         self.verify_design()
 
@@ -448,7 +545,9 @@ class BarskePump:
         H_total_real = H_total_ideal - H_loss
         # Now calculate real static head
         H_static_real = H_static_ideal - H_loss
-        # Also calculate static head due to forced vortex. This is total head minus impeller exit velocity
+        # Also calculate static head due to forced vortex. This is total head minus impeller exit velocity.
+        # This expression was derived from first principles, since Lock's does not separate total head into static and
+        # dynamic ones like Barske. Hence, it is recommended to use __analysis_Barske to get H_s.
         H_s = H_total_ideal - u_2**2 / (2 * self.g)
 
         # Also determine whether Q is above the maximum volumetric flow. First determine head at vapor pressure wrt.
@@ -584,13 +683,13 @@ class BarskePump:
         return (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
                 head_coefficient_total, H_s)
 
-    def __calcualate_axial_clearance(self, D_2):
-        """A method to calculate axial clearance of the impeller. From the empirical data from Barske (pg. 7 of
+    def __calcualate_radial_clearance(self, D_2):
+        """A method to calculate radial clearance of the impeller. From the empirical data from Barske (pg. 7 of
         "The Design of Open Impeller Centrifugal Pumps"), a linear equation for radial clearance was derived to do so.
 
          :param float or int D_2: Outer impeller diameter, m.
 
-         :return: Axial clearance of the impeller, m.
+         :return: Radial clearance of the impeller, m.
          :rtype: float
          """
         return (0.008 * (D_2 / self.inch_to_m) + 0.072) * self.inch_to_m
@@ -664,7 +763,9 @@ class BarskePump:
         # Calculate impeller ideal heads and coefficients depending on the method chosen
         if analysis_method is "Lock":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
-             head_coefficient_total, H_s) = self.__analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
+             head_coefficient_total, _) = self.__analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
+            # H_s is obtained from Barske, since it is more certain approach
+            H_s = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)[-1]
         elif analysis_method is "Barske":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
              head_coefficient_total, H_s) = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)
@@ -709,8 +810,10 @@ class BarskePump:
 
     def verify_design(self):
         """A method to verify the design of the Barske pump. It will print whether all conditions are satisfied and set
-         the condition flags in object properties. All guidelines are from 'The Design of Open Impeller Centrifugal
-          Pumps' by Barske."""
+         the condition flags in object properties. Impeller guidelines are from 'The Design of Open Impeller Centrifugal
+          Pumps' by Barske. Expeller guidelines are from "Centrifugal Pumps" (4th edition, section 9.2.7) by Gulich."""
+        print("Veryfying pump geometry. Recommended guidelines were taken from literature and semi-empirical data,\n"
+              "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.")
         # Verify if axial velocity at the inlet is within recommended range
         if not (5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m):
             print(f"Impeller eye diameter v0 is {self.analysis_results_design["v_0"]} m/s."
@@ -735,19 +838,38 @@ class BarskePump:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
                   f" It should be above {self.L_1 * self.D_1 / self.D_2 * 1000} mm.")
             self.design_checks["TE_width"] = False
-        # Verify that clearances are within recommended values
-        if self.s_rad > min(0.01 * self.D_2, 0.04 * 0.0254):
-            print(f"Radial clearance s_rad is {self.s_rad * 1000} mm."
+        # Verify that clearances are within recommended values. From Barske (pg. 7 of "The Design of Open Impeller
+        # Centrifugal Pumps"), axial clearance should be 1% of D_2, but should not be greater than
+        # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
+        # clearance is derived, however it is just a guideline.
+        if self.s_ax > min(0.01 * self.D_2, 0.04 * 0.0254):
+            print(f"Axial clearance s_ax is {self.s_ax * 1000} mm."
                   f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000} mm.")
             self.design_checks["radial_clearance"] = False
-        if self.s_ax > self.__calcualate_axial_clearance(self.D_2):
-            print(f"Axial clearance s_ax is {self.s_ax * 1000} mm."
-                  f" It should be below {self.__calcualate_axial_clearance(self.D_2) * 1000} mm")
-            self.design_checks["axial_clearance"] = False
+        if self.s_rad > self.__calcualate_radial_clearance(self.D_2):
+            self.design_checks["radial_clearance"] = False
+            print(f"Radial clearance s_rad is {self.s_rad * 1000} mm."
+                  f" Semi-empirical data indicates it should be"
+                  f" below {self.__calcualate_radial_clearance(self.D_2)} mm.")
         if self.L_2 < 3 * self.s_ax:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
                   f" It should be greater than 3s_ax = {3 * self.s_ax * 1000} mm.")
             self.design_checks["TE_width_clearance_ratio"] = False
+        # Now verify expeller. First height check.
+        if self.h_exp_over_D_2 < 0.015 or 2 * self.h_exp_over_D_2 > 0.025:
+            self.design_checks["expeller_height"] = False
+            print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2}."
+                  f" It should be between 0.015 and 0.025.")
+        # Now axial clearance checks.
+        if self.s_ax_exp_over_h_exp < 0.1 or self.s_ax_exp_over_h_exp > 0.2:
+            self.design_checks["expeller_clearance"] = False
+            print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp}."
+                  f" It should be between 0.1 and 0.2.")
+        # Now width check.
+        if self.t_exp_2 < 2 * self.h_exp:
+            self.design_checks["expeller_width"] = False
+            print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000} mm."
+                  f" It should be above {2 * self.h_exp * 1000} mm.")
 
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
@@ -760,9 +882,10 @@ class BarskePump:
             ["D_2", self.D_2 * 1e3, "mm", "Impeller outlet diameter"],
             ["D_3", self.D_3 * 1e3, "mm", "Diffuser throat diameter"],
             ["D_4", self.D_4 * 1e3, "mm", "Diffuser outlet diameter"],
-            ["D_5", self.D_5 * 1e3, "mm", "Hub diameter"],
+            ["D_hub", self.D_hub * 1e3, "mm", "Hub diameter"],
+            ["D_shaft", self.D_shaft * 1e3, "mm", "Shaft diameter"],
             ["D_1/D_0", self.D_1_over_D_0, "-", "Ratio of D1 to D0"],
-            ["D_5/D_1", self.D_5_over_D_1, "-", "Ratio of D5 to D1"],
+            ["D_hub/D_1", self.D_hub_over_D_1, "-", "Ratio of D_hub to D1"],
 
             # Widths & lengths
             ["L_1", self.L_1 * 1e3, "mm", "Impeller inlet width"],
@@ -794,6 +917,17 @@ class BarskePump:
             # Other
             ["n_blades", self.n_blades, "-", "Number of blades"],
             ["specific_speed", self.specific_speed, "m,RPM,m^3/h", "Specific speed (EU)"],
+
+            # Expeller
+            ["D_exp", self.D_exp * 1e3, "mm", "Expeller diameter"],
+            ["h_exp", self.h_exp * 1e3, "mm", "Expeller blade height"],
+            ["t_exp_1", self.t_exp_1 * 1e3, "mm", "Expeller blade thickness at the shaft"],
+            ["t_exp_2", self.t_exp_2 * 1e3, "mm", "Expeller blade thickness at the expeller diameter"],
+            ["s_ax_exp", self.s_ax_exp * 1e3, "mm", "Expeller axial clearance"],
+            ["n_exp", self.n_exp, "-", "Number of expeller blades"],
+            ["D_exp/D_2", self.D_exp_over_D_2, "-", "Ratio of D_exp to D_2"],
+            ["h_exp/D_2", self.h_exp_over_D_2, "-", "Ratio of h_exp to D_2"],
+            ["s_ax_exp/h_exp", self.s_ax_exp_over_h_exp, "-", "Ratio of s_ax_exp to h_exp"]
         ]
 
         # Print table
@@ -812,7 +946,7 @@ class BarskePump:
         D2 = self.D_2 * 1e3 # mm
         D3 = self.D_3 * 1e3 # mm
         D4 = self.D_4 * 1e3 # mm
-        D5 = self.D_5 * 1e3 # mm
+        D_hub = self.D_hub * 1e3 # mm
         L1 = self.L_1 * 1e3 # mm
         L2 = self.L_2 * 1e3 # mm
         L_diffuser = self.L_diffuser * 1e3 # mm
@@ -827,7 +961,7 @@ class BarskePump:
         r1 = D1 / 2 # mm
         r2 = D2 / 2 # mm
         r_eye = D0 / 2 # mm
-        r_hub = D5 / 2 # mm
+        r_hub = D_hub / 2 # mm
         r_volute = (D2 + 2 * s_rad) / 2 # mm
 
         # First create figure with two subplots - one subplot will be for top view and another for side view
