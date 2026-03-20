@@ -41,6 +41,7 @@ class BarskePump:
         # Clearances
         self.s_ax = None # axial clearance, m
         self.s_rad = None  # radial clearance, m
+        self.s_rad_hub = None # radial clearance of the hub or expeller, m
 
         # Thicknesses
         self.t_0 = None # impeller hub thickness, m
@@ -60,12 +61,10 @@ class BarskePump:
         self.t_exp_1 = None # thickness of the expeller blades near the shaft, m
         self.t_exp_2 = None  # thickness of the expeller blades near the outlet, m
         self.s_ax_exp = None # axial clearance of the expeller, m
-        self.s_rad_exp = None  # axial clearance of the expeller, m
         self.n_exp = None # number of expeller blades, -
         self.D_exp_over_D_2 = None # D_exp over D_2, -
         self.h_exp_over_D_2 = None # h_exp over D_2, -
         self.s_ax_exp_over_h_exp = None  # s_ax_exp over h_ex, -
-        self.s_rad_exp_over_D_exp = None # s_rad_exp over D_exp, -
 
         # Other
         self.n_blades = None # number of blades, -
@@ -102,16 +101,21 @@ class BarskePump:
                                         "P_h_losses": None, # Hydraulic power losses, W
                                         "P_h_total": None,  # Total hydraulic power, W
                                         "P_total": None,  # Total pump power, W
-                                        "P_f": None,  # Power to overcome friction, W
+                                        "P_f_impeller": None,  # Power to overcome friction for the impeller, W
+                                        "P_f_expeller": None,  # Power loss to for the expeller, W
+                                        "P_f_total": None, # Total friction power loss, W
                                         "eta_total": None, # Pump total efficiency, -
                                         "eta_static": None,  # Pump total efficiency, -
                                         "eta_losses": None, # Fraction of dynamic head lost in the diffuser, -
                                         "T_upstream": None, # Upstream temperature, K
                                         "rho": None, # Fluid density used for the analysis, kg/m^3
                                         "p_upstream": None,  # Upstream total (tank/reservoir) pressure, Pa
-                                        "p_inlet": None, # Pressure at the impeller eye, Pa
+                                        "p_inlet": None, # Pressure in the inlet pipe, Pa
+                                        "p_0": None, # Pressure in the impeller eye, Pa
+                                        "p_hub": None, # Pressure at the edge of the impeller hub, Pa
                                         "p_2": None, # Pressure at the impeller outlet, Pa
                                         "p_4": None, # Pressure at the diffuser outlet, Pa
+                                        "p_shaft": None, # Pressure at the impeller shaft, Pa
                                         "v_inlet": None,  # Velocity in the inlet pipe, m/s
                                         "v_0": None, # Velocity at the impeller eye, m/s
                                         "u_1": None, # Blade velocity at the impeller inlet, m/s
@@ -172,18 +176,19 @@ class BarskePump:
                                       1.603, 1.704, 1.803, 1.903, 2.003, 2.104, 2.206, 2.307, 2.406, 2.505]
         C_h = [0.995, 0.994, 0.988, 0.980, 0.967, 0.955, 0.942, 0.926, 0.908, 0.890, 0.872, 0.854, 0.837, 0.819, 0.803,
                0.787, 0.772, 0.757, 0.743, 0.729, 0.717]
-        C_h_interp = intrp.interp1d(blade_spacing_length_ratio, C_h, kind="linear", bounds_error=False, fill_value="extrapolate")
+        C_h_interp = intrp.interp1d(blade_spacing_length_ratio, C_h, kind="linear", bounds_error=False,
+                                    fill_value="extrapolate")
         # Property to store interpolating function
         self.C_h = lambda sigma: np.clip(C_h_interp(sigma), 0.0, 1.0)
 
     def size_dimensions(self, fluid, RPM, dp, mdot, p_upstream, T_upstream, inlet_sizing_method, diameter_sizing_method,
                         widths_sizing_method, outlet_sizing_method, hub_sizing_method, t_hub, t_LE, t_TE, D_inlet,
                         D_shaft, n_blades = 5, diffuser_area_ratio = 4, diffuser_angle = 8,
-                        flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1, D_hub_over_D_1 = 1.1, alpha_1 = 90, s_ax_over_D_2 = 0.01,
-                        v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07, L_1_over_D_1 = 0.25, r_factor = 0.8,
-                        eta_losses = 0.194, K_factor = 0.17, no_prerotation = False, D_diffuser_outlet = None,
-                        expeller = False, D_exp_over_D_2 = 1, h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2,
-                        s_rad_exp_over_D_exp = 0.01):
+                        flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1, D_hub_over_D_1 = 1.1, alpha_1 = 90,
+                        s_ax_over_D_2 = 0.01, v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07,
+                        L_1_over_D_1 = 0.25, r_factor = 0.8, eta_losses = 0.194, K_factor = 0.17,
+                        no_prerotation = False, D_diffuser_outlet = None, expeller = False, D_exp_over_D_2 = 1,
+                        h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2, s_rad_hub_over_D_2 = 0.01):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
         :param Fluid fluid: Fluid object representing fluid used for the sizing of the Barske Pump.
@@ -268,7 +273,7 @@ class BarskePump:
             This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
         :param float s_ax_exp_over_h_exp: Ratio of expeller axial clearance s_ax_exp to its blade height h_exp.
             By default, 0.2. This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
-        :param float s_rad_exp_over_D_exp: Ratio of expeller radial clearance s_rad_exp to its diameter D_exp.
+        :param float s_rad_hub_over_D_2: Ratio of hub/expeller radial clearance s_rad_hub to impeller diameter D_2.
             By default, 0.01.
         """
         # Fist get fluid density
@@ -316,14 +321,10 @@ class BarskePump:
             warnings.warn("inlet_sizing_method must be 'Lobanoff', 'flow velocity', 'blade velocity' or"
                           " 'flow coefficient'")
 
-        # If alpha_1 is not 90 degrees and D_hub_over_D_1 is different from 1, alpha_1 will be changed to 90 degrees.
+        # If alpha_1 is not 90 degrees and D_hub_over_D_1 is different from 1 or outlet diameter sizing method is
+        # used, alpha_1 will be changed to 90 degrees.
         if alpha_1 != 90 and (hub_sizing_method == "outlet diameter" or D_hub_over_D_1 != 1):
             warnings.warn("Alpha_1 is not 90 degrees, but D_hub_over_D_1 is not 1."
-                          " To ensure feasible geometry, alpha_1 is set to 90 degrees.")
-            alpha_1 = 90 # deg
-        # If expeller is used and alpha_1 is not 90 degrees, it will be also set to 90 degrees to keep geometry feasible
-        elif alpha_1 != 90 and expeller:
-            warnings.warn("Alpha_1 is not 90 degrees, but expeller is used."
                           " To ensure feasible geometry, alpha_1 is set to 90 degrees.")
             alpha_1 = 90 # deg
 
@@ -387,8 +388,17 @@ class BarskePump:
                 warnings.warn("widths_sizing_method must be 'Gulich', 'Barske' or 'Rocketdyne'")
 
             # Calculate the rest of the geometry. First calculate alpha_0, which is the angle of the forward edge of
-            # the impeller wrt. axis of rotation. dy_TE is how much trailing edge is lifted wrt. the hub.
-            dy_TE = np.tan((90 - self.alpha_1) * np.pi / 180) * ((D_2 - self.D_1) / 2) # m
+            # the impeller wrt. axis of rotation. dy_TE is how much trailing edge is lifted wrt. the hub. If hub is not
+            # the same as impeller diameter:
+            if hub_sizing_method == "diameter fraction":
+                dy_TE = np.tan((90 - self.alpha_1) * np.pi / 180) * ((D_2 - self.D_1) / 2) # m
+            # If hub diameter has impeller diameter, dy_TE is just t_hub
+            elif hub_sizing_method == "outlet diameter":
+                dy_TE = self.t_0
+            # Otherwise raise an error
+            else:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
             alpha_0 = np.arctan(((D_2 - self.D_1) / 2) / (L_1 + self.t_0 - L_2 - dy_TE)) * 180 / np.pi # degrees
             # Now calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
@@ -440,10 +450,6 @@ class BarskePump:
         elif hub_sizing_method == "outlet diameter":
             self.D_hub = self.D_2  # m
             self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
-        # Raise error otherwise
-        else:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
 
         # Size the expeller. If not used, its geometry is None.
         if not expeller:
@@ -457,17 +463,15 @@ class BarskePump:
             self.D_exp_over_D_2 = None
             self.h_exp_over_D_2 = None
             self.s_ax_exp_over_h_exp = None
-            self.s_rad_exp = None
-            self.s_rad_exp_over_D_exp = None
         # Size the expeller if it is used
         if expeller:
             self.expeller = True
             self.D_exp = D_exp_over_D_2 * self.D_2 # m
-            # If D_exp is smaller than D_hub, it will be set to be equal to it.
-            if self.D_exp < self.D_hub:
+            # If D_exp is greater than D_hub, it will be set to be equal to it.
+            if self.D_exp > self.D_hub:
                 self.D_exp = self.D_hub # m
                 D_exp_over_D_2 = self.D_exp / self.D_2 # -
-                warnings.warn("Expeller diameter is smaller than hub diameter."
+                warnings.warn("Expeller diameter is greater than hub diameter."
                               " To ensure supported geometry, D_exp is set to D_hub.")
             self.h_exp = h_exp_over_D_2 * self.D_2 # m
             # Thicknesses are chosen to mach thickness of the blades based on linear extrapolation/ interpolation.
@@ -478,8 +482,13 @@ class BarskePump:
             self.h_exp_over_D_2 = h_exp_over_D_2 # -
             self.s_ax_exp = s_ax_exp_over_h_exp * self.h_exp # m
             self.s_ax_exp_over_h_exp = s_ax_exp_over_h_exp # -
-            self.s_rad_exp = s_rad_exp_over_D_exp * self.D_exp # m
-            self.s_rad_exp_over_D_exp = s_rad_exp_over_D_exp # -
+
+        # Size the gap between hub/expeller and the casing if hub has diameter of the impeller or expeller is used
+        if hub_sizing_method == "outlet diameter" or expeller:
+            self.s_rad_hub = s_rad_hub_over_D_2 * self.D_2 # m
+        # Otherwise it is None
+        else:
+            self.s_rad_hub = None
 
         # With all dimensions known, full analysis can be performed to get more data about flow and performance
         if diameter_sizing_method is "Lobanoff":
@@ -734,8 +743,9 @@ class BarskePump:
         # First calculate flow speed and static pressure at the inlet.
         v_inlet = 4 * Q / (np.pi * self.D_inlet**2)
         p_inlet = p_upstream - 0.5 * rho * v_inlet**2
-        # Calculate flow velocity at the impeller eye
+        # Calculate flow velocity and pressure at the impeller eye
         v_0 = 4 * Q / (np.pi * self.D_0**2)
+        p_0 = p_upstream - 0.5 * rho * v_0 ** 2
         # Then calculate u_1, v_1m and v_1ax
         omega = RPM * 2 * np.pi / 60 # rad / s
         u_1 = omega * self.D_1 / 2
@@ -748,13 +758,13 @@ class BarskePump:
         v_3 = 4 * Q / (np.pi * self.D_3 ** 2)
         v_4 = 4 * Q / (np.pi * self.D_4 ** 2)
 
-        # Calculate paddle power to overcome friction
+        # Calculate paddle power to overcome friction for the impeller
         dummy_1a = 0.6e-6 * rho / self.lb_to_kg * self.feet_to_m**3
         dummy_1b = (kinematic_viscosity  / self.feet_to_m**2)**0.2 * (RPM / 1000)**2.8
         dummy_1c = np.sin(self.alpha_0 * np.pi / 180)**(-1) + np.sin(self.alpha_1 * np.pi / 180)**(-1)
         dummy_1d = (self.D_2 / self.inch_to_m)**4.6
         dummy_1e = 9.2 * (self.D_1 / self.inch_to_m)**3.6 * self.L_1 / self.inch_to_m
-        P_f = dummy_1a * dummy_1b * (dummy_1c * dummy_1d + dummy_1e) * self.HP_to_W # W
+        P_f_impeller = dummy_1a * dummy_1b * (dummy_1c * dummy_1d + dummy_1e) * self.HP_to_W # W
         
         # Calculate flow coefficient
         flow_coefficient_inlet = v_1ax / u_1
@@ -780,6 +790,92 @@ class BarskePump:
         dp = functions.get_dP_from_H(fluid, H_static_real, p_inlet, T_upstream)
         p_4 = p_inlet + dp
 
+        # Determine forces. First determine momentum force.
+        F_momentum = mdot * v_0
+
+        # Now determine hydraulic axial force. Procedure and nomenclature is based on section 9.2 from 4th edition of
+        # "Centrifugal Pumps" by Gulich, tables 9.1, 9.2 and 9.3. First k_0 will be calculated. k is ratio of tangential
+        # fluid velocity to circumferential blade velocity. Impeller radius is obtained for convenience.
+        r_2 = self.D_2 / 2
+        # There is a step in the casing if hub diameter is equal to the impeller diameter. Thickness and radius of that
+        # step are t_ax and r_w respectively.
+        if self.D_hub == self.D_2:
+            # First consider cases when there is no expeller
+            if not self.expeller:
+                # If hub does not overlap with that step, t_ax will equal t_hub to maintain constant axial clearance
+                if self.s_ax > self.t_0: t_ax = self.t_0
+                # If hub overlaps with that step, t_ax is taken as equal to axial clearance
+                else: t_ax = self.s_ax
+            # Now consider cases when there is expeller
+            elif self.expeller:
+                # If hub does not overlap with that step, t_ax can be computed from other dimensions and clearances
+                if self.s_ax > self.t_0: t_ax = self.t_0 + self.h_exp + self.s_ax_exp - self.s_ax
+                # If hub does overlap with that step, t_ax is taken as equal to the axial clearance between plain hub
+                # and casing
+                else: t_ax = self.h_exp + self.s_ax_exp
+            # In call cases, r_w is impeller radius plus hub radial clearance
+            r_w = r_2 + self.s_rad_hub
+            # k_0 can be now calculated
+            k_0 = 1 / (1 + (r_w / r_2)**2 * np.sqrt((r_w / r_2) + 5 * (t_ax / r_2)))
+        # There are open sidewall gaps if hub diameter is smaller than impeller diameter. In this case, t_ax is zero
+        # and r_w is equal to the radius of the hub.
+        elif self.D_hub < self.D_2:
+            # Hub ends before diameter, hence r_w is used instead of r_2 in the formula for k_0. It should evaluate to
+            # 0.5 in such case.
+            k_0 = 0.5
+
+        # If expeller is present calculate k_rs and k_av. The hub possibly may not be equal to impeller diameter,
+        # so values of impeller radius and diameter in equations given by Gulich are substituted with hub radius and
+        # diameter.
+        if self.expeller:
+            r_hub = self.D_hub / 2
+            k_rs = 1 / (1 + 0.13 * (self.s_ax_exp / (self.s_ax_exp + self.h_exp)) *
+                        np.sqrt(r_hub/(self.h_exp * self.n_exp)))
+            k_av = np.sqrt((self.D_exp / self.D_hub)**(2 - 0.9 * self.D_exp / self.D_hub) * (k_rs**2 - k_0**2) + k_0**2)
+        # If it is not present, k_av is just k_0
+        elif not self.expeller:
+            k_av = k_0
+
+        # Beyond hub forces are balanced, so hub diameter is used instead of impeller diameter in axial force
+        # calculations. First obtain static pressure increase at the hub end assuming it varies linearly. It should vary
+        # quadratically, but linear variation is what is assumed in Gulich in T9.3.1. In any case, linear variation
+        # gives conservative results.
+        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2) + p_0
+        delta_p_hub = p_hub - p_0
+        # Also get blade velocity there
+        u_hub = omega * self.D_hub / 2
+
+        # Hydraulic axial force can be now calculated
+        dummy_2a = np.pi / 4 * self.D_hub**2
+        dummy_2b = delta_p_hub * (1 - (self.D_shaft / self.D_hub)**2)
+        dummy_2c = rho / 4 * (k_av * u_hub * (1 - (self.D_shaft / self.D_hub)**2))**2
+        dummy_2d = delta_p_hub / 2 * (1 - (self.D_1 / self.D_hub)**2)**2
+        F_hydraulic = dummy_2a * (dummy_2b - dummy_2c - dummy_2d)
+        # Now calculate total axial force
+        F_ax = F_hydraulic - F_momentum
+
+        # Calculate pressure at the shaft. This time assume quadratic variation and forced vortex
+        # (more realistic results).
+        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2)**2 + p_0
+        r_hub = self.D_hub / 2
+        r_shaft = self.D_shaft / 2
+        p_shaft = p_hub - rho / 2 * (u_hub * k_av)**2 * (1 - (r_shaft / r_hub)**2)
+
+        # If expeller is present, calculate power loss due to it. Hub may be smaller than impeller diameter, so again
+        # use hub diameter and radius instead of impeller ones.
+        if self.expeller:
+            dummy_3a = rho * omega**3 * r_hub**5
+            dummy_3b = 0.1 / (u_hub * r_hub / kinematic_viscosity)**0.2
+            dummy_3c = (self.D_exp / self.D_hub)**4
+            dummy_3d = ((self.h_exp + self.s_ax_exp) / r_hub + 0.24)
+            dummy_3e = 0.25 * ((self.h_exp + self.s_ax_exp) / r_hub)**0.1
+            dummy_3f = 1 - (self.D_exp / self.D_hub)**5
+            P_f_expeller = dummy_3a * dummy_3b * (dummy_3c * dummy_3d + dummy_3e * dummy_3f)
+        # Otherwise, it is zero.
+        else:
+            P_f_expeller = 0
+        # Calculate total frcition power
+        P_f_total = P_f_impeller + P_f_expeller
         # Calculate useful pump power
         P_h_useful = mdot * H_total_real * self.g
         # Calculate pump power lost to hydraulic losses
@@ -787,12 +883,15 @@ class BarskePump:
         # Calculate total hydraulic pump power
         P_h_total = mdot * H_total_ideal * self.g
         # Calculate total pump power
-        P_total = P_h_total + P_f
+        P_total = P_h_total + P_f_total
         # Calculate pump efficiency
         eta_static = mdot * H_static_real * self.g / P_total
         eta_total = P_h_useful / P_total
         # Calculate outlet temperature
-        T_outlet = T_upstream + (P_h_losses + P_f) / (mdot * fluid.get_Cp(p_inlet, T_upstream))
+        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_Cp(p_inlet, T_upstream))
+
+        # Determine torque acting on the impeller
+        Torque = P_total / omega # N*m
 
         # Pack results into dictionary and return it
         analysis_results = {"method": analysis_method, "fluid": fluid, "RPM": RPM, "omega": omega, "mdot": mdot,
@@ -801,11 +900,13 @@ class BarskePump:
                             "flow_coefficient_inlet": flow_coefficient_inlet,
                             "flow_coefficient_outlet": flow_coefficient_outlet,
                             "static_head_coefficient": head_coefficient_static, "P_h_useful": P_h_useful,
-                            "P_h_losses": P_h_losses, "P_h_total": P_total, "P_total": P_total, "P_f": P_f,
+                            "P_h_losses": P_h_losses, "P_h_total": P_total, "P_total": P_total,
+                            "P_f_impeller": P_f_impeller, "P_f_expeller": P_f_expeller, "P_f_total": P_f_total,
                             "eta_total": eta_total, "eta_static": eta_static, "eta_losses": eta_losses,
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
-                            "p_2": p_2, "p_4": p_4, "v_inlet": v_inlet, "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax,
-                            "v_1m": v_1m, "v_1": v_1, "u_2": u_2, "v_3": v_3, "v_4": v_4, "T_4": T_outlet}
+                            "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4, "v_inlet": v_inlet,
+                            "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax, "v_1m": v_1m, "v_1": v_1, "u_2": u_2, "v_3": v_3,
+                            "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "Torque": Torque}
         return analysis_results
 
     def verify_design(self):
@@ -856,23 +957,28 @@ class BarskePump:
                   f" It should be greater than 3s_ax = {3 * self.s_ax * 1000} mm.")
             self.design_checks["TE_width_clearance_ratio"] = False
         # Now verify expeller. First height check.
-        if self.h_exp_over_D_2 < 0.015 or 2 * self.h_exp_over_D_2 > 0.025:
-            self.design_checks["expeller_height"] = False
-            print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2}."
-                  f" It should be between 0.015 and 0.025.")
-        # Now axial clearance checks.
-        if self.s_ax_exp_over_h_exp < 0.1 or self.s_ax_exp_over_h_exp > 0.2:
-            self.design_checks["expeller_clearance"] = False
-            print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp}."
-                  f" It should be between 0.1 and 0.2.")
-        # Now width check.
-        if self.t_exp_2 < 2 * self.h_exp:
-            self.design_checks["expeller_width"] = False
-            print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000} mm."
-                  f" It should be above {2 * self.h_exp * 1000} mm.")
+        if self.expeller is True:
+            if self.h_exp_over_D_2 < 0.015 or 2 * self.h_exp_over_D_2 > 0.025:
+                self.design_checks["expeller_height"] = False
+                print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2}."
+                      f" It should be between 0.015 and 0.025.")
+            # Now axial clearance checks.
+            if self.s_ax_exp_over_h_exp < 0.1 or self.s_ax_exp_over_h_exp > 0.2:
+                self.design_checks["expeller_clearance"] = False
+                print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp}."
+                      f" It should be between 0.1 and 0.2.")
+            # Now width check.
+            if self.t_exp_2 < 2 * self.h_exp:
+                self.design_checks["expeller_width"] = False
+                print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000} mm."
+                      f" It should be above {2 * self.h_exp * 1000} mm.")
 
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
+        # Creat a function for safe handling of None
+        def safe(val, factor=1.0):
+            return val * factor if val is not None else None
+
         # Create rows
         rows = [
             # Diameters
@@ -902,6 +1008,7 @@ class BarskePump:
             # Clearances
             ["s_ax", self.s_ax * 1e3, "mm", "Axial clearance"],
             ["s_rad", self.s_rad * 1e3, "mm", "Radial clearance"],
+            ["s_rad", safe(self.s_rad_hub, 1e3), "mm", "Radial clearance of the hub/expeller"],
 
             # Thicknesses
             ["t_0", self.t_0 * 1e3, "mm", "Impeller hub thickness"],
@@ -919,15 +1026,15 @@ class BarskePump:
             ["specific_speed", self.specific_speed, "m,RPM,m^3/h", "Specific speed (EU)"],
 
             # Expeller
-            ["D_exp", self.D_exp * 1e3, "mm", "Expeller diameter"],
-            ["h_exp", self.h_exp * 1e3, "mm", "Expeller blade height"],
-            ["t_exp_1", self.t_exp_1 * 1e3, "mm", "Expeller blade thickness at the shaft"],
-            ["t_exp_2", self.t_exp_2 * 1e3, "mm", "Expeller blade thickness at the expeller diameter"],
-            ["s_ax_exp", self.s_ax_exp * 1e3, "mm", "Expeller axial clearance"],
-            ["n_exp", self.n_exp, "-", "Number of expeller blades"],
-            ["D_exp/D_2", self.D_exp_over_D_2, "-", "Ratio of D_exp to D_2"],
-            ["h_exp/D_2", self.h_exp_over_D_2, "-", "Ratio of h_exp to D_2"],
-            ["s_ax_exp/h_exp", self.s_ax_exp_over_h_exp, "-", "Ratio of s_ax_exp to h_exp"]
+            ["D_exp", safe(self.D_exp, 1e3), "mm", "Expeller diameter"],
+            ["h_exp", safe(self.h_exp, 1e3), "mm", "Expeller blade height"],
+            ["t_exp_1", safe(self.t_exp_1, 1e3), "mm", "Expeller blade thickness at the shaft"],
+            ["t_exp_2", safe(self.t_exp_2, 1e3), "mm", "Expeller blade thickness at the expeller diameter"],
+            ["s_ax_exp", safe(self.s_ax_exp, 1e3), "mm", "Expeller axial clearance"],
+            ["n_exp", safe(self.n_exp, 1), "-", "Number of expeller blades"],
+            ["D_exp/D_2", safe(self.D_exp_over_D_2, 1e3), "-", "Ratio of D_exp to D_2"],
+            ["h_exp/D_2", safe(self.h_exp_over_D_2, 1e3), "-", "Ratio of h_exp to D_2"],
+            ["s_ax_exp/h_exp", safe(self.s_ax_exp_over_h_exp, 1e3), "-", "Ratio of s_ax_exp to h_exp"]
         ]
 
         # Print table
@@ -1123,10 +1230,8 @@ class BarskePump:
             ["method", r["method"], "-", "Analysis method"],
             ["fluid", r["fluid"].get_name, "-", "Fluid used for analysis"],
             ["RPM", r["RPM"], "1/min", "Rotations per minute"],
-
             ["mdot", r["mdot"], "kg/s", "Mass flow rate"],
             ["Q", r["Q"], "m^3/s", "Volumetric flow rate"],
-
             ["dp", r["dp"] * 1e-5, "bar", "Pressure rise across pump"],
 
             ["flow_coefficient_inlet", r["flow_coefficient_inlet"], "-", "Flow coefficient at impeller inlet"],
@@ -1143,7 +1248,9 @@ class BarskePump:
             ["P_h_losses", r["P_h_losses"] * 1e-3, "kW", "Hydraulic losses power"],
             ["P_h_total", r["P_h_total"] * 1e-3, "kW", "Total hydraulic power"],
             ["P_total", r["P_total"] * 1e-3, "kW", "Total pump power"],
-            ["P_f", r["P_f"] * 1e-3, "kW", "Friction power"],
+            ["P_f_impeller", r["P_f_impeller"] * 1e-3, "kW", "Impeller friction power"],
+            ["P_f_expeller", r["P_f_expeller"] * 1e-3, "kW", "Expeller friction power"],
+            ["P_f_total", r["P_f_total"] * 1e-3, "kW", "Total friction power"],
 
             ["eta_total", r["eta_total"], "-", "Total efficiency"],
             ["eta_static", r["eta_static"], "-", "Static efficiency"],
@@ -1154,6 +1261,10 @@ class BarskePump:
 
             ["p_upstream", r["p_upstream"] * 1e-5, "bar", "Upstream pressure"],
             ["p_inlet", r["p_inlet"] * 1e-5, "bar", "Pressure at impeller eye"],
+            ["p_0", r["p_0"] * 1e-5, "bar", "Pressure at impeller eye"],
+            ["p_shaft", r["p_shaft"] * 1e-5, "bar", "Pressure at impeller shaft"],
+            ["p_hub", r["p_hub"] * 1e-5, "bar", "Pressure at the edge of impeller hub"],
+            ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
             ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
             ["p_4", r["p_4"] * 1e-5, "bar", "Pressure at diffuser outlet"],
 
@@ -1170,6 +1281,9 @@ class BarskePump:
             ["v_4", r["v_4"], "m/s", "Velocity at diffuser outlet"],
 
             ["T_4", r["T_4"], "K", "Outlet temperature"],
+
+            ["F_ax", r["F_ax"], "N", "Axial force"],
+            ["Torque", r["Torque"], "N*m", "Pump torque"],
         ]
 
         # Print table
