@@ -33,7 +33,6 @@ class BarskePump:
         self.L_diffuser = None # diffuser length, m
 
         # Areas
-        self.A_0 = None # impeller eye area, m^2
         self.A_3 = None # impeller throat diffuser area, m^2
         self.A_4 = None # impeller exit diffuser area, m^2
         self.A_4_over_A_3 = None # diffuser area ratio, -
@@ -78,8 +77,6 @@ class BarskePump:
         self.static_head_coefficient_BEP_Barske = None # static head coefficient at BEP from Lobanoff sizing method for
         # head calculations with Barske method, -.
         self.static_head_coefficient_BEP_Lock = None # static head coefficient at BEP from Lock's method, -.
-
-        #TODO Add forces
 
         # Dictionary to store analysis inputs and results.
         self.analysis_results_design = {"method": None, # Method used for analysis, -
@@ -128,7 +125,7 @@ class BarskePump:
                                         "T_4": None,  # Outlet temperature, K
                                         "F_ax": None, # Axial force, N
                                         "F_rad": None,  # Radial force, N
-                                        "T": None,  # Torque, N
+                                        "Torque": None,  # Torque, N
                                         }
 
         # Dictionary with flags whether the best practices/guidelines are satisfied
@@ -349,43 +346,43 @@ class BarskePump:
 
             # Size the diffuser from the assigned outlet flow coefficient
             v_3 = u_2 * self.flow_coefficient_BEP # m/s
-            D_3 = np.sqrt(4 * Q_design / (np.pi * v_3)) # m
-            A_3 = np.pi * (D_3 / 2)**2 # m^2
+            self.D_3 = np.sqrt(4 * Q_design / (np.pi * v_3)) # m
+            self.A_3 = np.pi * (self.D_3 / 2)**2 # m^2
             # If diffuser sizing is done through area ratio
             if outlet_sizing_method == "area ratio":
-                A_4 = self.A_4_over_A_3 * A_3  # m^2
-                D_4 = 2 * np.sqrt(A_4 / np.pi)  # m
+                self.A_4 = self.A_4_over_A_3 * self.A_3  # m^2
+                self.D_4 = 2 * np.sqrt(self.A_4 / np.pi)  # m
             # If it is done with outlet diameter
             elif outlet_sizing_method == "outlet diameter":
                 if D_diffuser_outlet is None:
                     warnings.simplefilter("error", UserWarning)
                     warnings.warn("D_diffuser_outlet cannot be None if outlet_sizing_method is 'outlet diameter'.")
-                D_4 = D_diffuser_outlet # m
-                A_4 = np.pi * (D_4 / 2)**2 # m2
+                self.D_4 = D_diffuser_outlet # m
+                self.A_4 = np.pi * (self.D_4 / 2)**2 # m2
             # If wrong input was given
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("outlet_sizing_method must be 'area ratio' or 'outlet diameter'.")
-            diffuser_area_ratio = A_4 / A_3
-            L_diffuser = ((D_4 - D_3) / 2) / np.tan(self.alpha_diffuser * np.pi / 180) # m
+            diffuser_area_ratio = self.A_4 / self.A_3
+            L_diffuser = ((self.D_4 - self.D_3) / 2) / np.tan(self.alpha_diffuser * np.pi / 180) # m
 
             # If blade width sizing method is Gulich, first get L_2 and then get L_1
             if widths_sizing_method == "Gulich":
-                L_2 = (0.02 + 0.5 * (self.specific_speed/100) - 0.03 * (self.specific_speed/100)**2
+                self.L_2 = (0.02 + 0.5 * (self.specific_speed/100) - 0.03 * (self.specific_speed/100)**2
                        - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 # Calculate L_1, while taking blade thickness into account
-                L_1 = (D_2 * L_2 - self.n_blades * L_2 * self.t_2) / self.D_1 # m
+                self.L_1 = (D_2 * self.L_2 - self.n_blades * self.L_2 * self.t_2) / self.D_1 # m
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
-            elif widths_sizing_method in ("Barske", "Rocketdyne"):
-                if widths_sizing_method == "Barske":
-                    L_1 = L_1_over_D_1 * self.D_1   # m
+            elif widths_sizing_method in ("diameter fraction", "Rocketdyne"):
+                if widths_sizing_method == "diameter fraction":
+                    self.L_1 = L_1_over_D_1 * self.D_1   # m
                 elif widths_sizing_method == "Rocketdyne":
-                    L_1 = np.pi * self.D_1 / (4 * r_factor) # m
+                    self.L_1 = np.pi * self.D_1 / (4 * r_factor) # m
                 # Calculate L_2, while taking blade thickness into account
-                L_2 = self.D_1 * L_1 / (D_2 - self.n_blades * self.t_2)  # m
+                self.L_2 = self.D_1 * self.L_1 / (D_2 - self.n_blades * self.t_2)  # m
             else:
                 warnings.simplefilter("error", UserWarning)
-                warnings.warn("widths_sizing_method must be 'Gulich', 'Barske' or 'Rocketdyne'")
+                warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
 
             # Calculate the rest of the geometry. First calculate alpha_0, which is the angle of the forward edge of
             # the impeller wrt. axis of rotation. dy_TE is how much trailing edge is lifted wrt. the hub. If hub is not
@@ -399,15 +396,15 @@ class BarskePump:
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
-            alpha_0 = np.arctan(((D_2 - self.D_1) / 2) / (L_1 + self.t_0 - L_2 - dy_TE)) * 180 / np.pi # degrees
+            alpha_0 = np.arctan(((D_2 - self.D_1) / 2) / (self.L_1 + self.t_0 - self.L_2 - dy_TE)) * 180 / np.pi # degrees
             # Now calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
-            alpha_2 = np.arctan((Q_design / (L_1 * np.pi * self.D_1)) / u_1) * 180 / np.pi # degrees
+            alpha_2 = np.arctan((Q_design / (self.L_1 * np.pi * self.D_1)) / u_1) * 180 / np.pi # degrees
 
             # Calculate axial and radial clearances between the casing and the impeller.
             s_ax = s_ax_over_D_2 * D_2 # m
             # Radial clearance is calculated such that centerline of the diffuser throat is at D_2
-            s_rad = D_3 / 2 # m
+            s_rad = self.D_3 / 2 # m
 
             # Analyse performance either with Lobanoff or Lock method
             if diameter_sizing_method == "Lock":
@@ -419,16 +416,20 @@ class BarskePump:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
-            return H, u_2, D_3, D_4, A_3, A_4, diffuser_area_ratio, L_diffuser, L_1, L_2, alpha_0, alpha_2, s_ax, s_rad
+            return (H, u_2, self.D_3, self.D_4, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser, self.L_1, self.L_2,
+                    alpha_0, alpha_2, s_ax, s_rad)
 
         # Now solve the function for D_2 and get all other remaining dimensions. Typical head coefficient for Barske
         # impellers is about 1.4 (Gulich). Bisection is used, so the diameter range is from 1.1x inner diameter to
         # 2x diameter sized with head coefficient of 1.4.
         D_2_estimate = (2 / omega) * np.sqrt(2 * self.g * H_required / 1.4)
-        self.D_2 = opt.toms748(f=lambda x: H_required - get_impeller_head(x), a=self.D_1 * 1.1, b=2*D_2_estimate)[0]
+        self.D_2 = opt.toms748(f=lambda x: H_required - get_impeller_head(x)[0], a=self.D_1 * 1.1, b=2*D_2_estimate)
         # Now get the remaining results
         (H_design, u_2, self.D_3, self.D_4, self.A_3, self.A_4, self.A_4_over_A_3, self.L_diffuser, self.L_1, self.L_2,
          self.alpha_0, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+
+        # Calculate ratio of L_1 to D_1
+        self.L_1_over_D_1 = self.L_1 / self.D_1
 
         # Regardless with what method diameter was sized, obtain static head coefficient for Lobanoff method.
         # This is necessary in case the sized geometry is analyzed in the future with methods proposed by Barske in
@@ -491,10 +492,10 @@ class BarskePump:
             self.s_rad_hub = None
 
         # With all dimensions known, full analysis can be performed to get more data about flow and performance
-        if diameter_sizing_method is "Lobanoff":
-            analysis_method = "Lobanoff"
-        else:
+        if diameter_sizing_method == "Lobanoff":
             analysis_method = "Barske"
+        else:
+            analysis_method = "Lock"
         self.analysis_results_design = self.analyse(fluid, mdot, RPM, p_upstream, T_upstream, analysis_method,
                                                     K_factor, eta_losses, no_prerotation)
 
@@ -531,7 +532,7 @@ class BarskePump:
 
         # First find h_0 and C_h factors from digitalized Figure 10a and Figure 10b from Lock. To do so, ratio of
         # impeller radii and blade spacing to length ratio need to be found.
-        r_ratio = self.D_2 / self.D_1
+        r_ratio = self.D_1 / self.D_2
         blade_spacing_length_ratio = (self.D_1 * np.pi / self.n_blades) / ((self.D_2 - self.D_1) / 2)
         # Use interpolators created during object construction
         h_0 = self.h_0(r_ratio, self.n_blades)
@@ -561,7 +562,8 @@ class BarskePump:
 
         # Also determine whether Q is above the maximum volumetric flow. First determine head at vapor pressure wrt.
         # inlet pressure.
-        H_vp = functions.get_H_from_dp(fluid=fluid, pressure_rise=fluid.get_vp(T_inlet) - p_inlet, p_0=p_inlet, T_0=T_inlet)
+        H_vp = functions.get_H_from_dp(fluid=fluid, pressure_rise=fluid.get_vapor_pressure(T_inlet) - p_inlet,
+                                       p_0=p_inlet, T_0=T_inlet)
         # Now determine the head in the throat wrt. inlet pressure
         H_3 = H_static_real + H_loss - 8 * Q**2 * (self.D_3**(-4) - self.D_4**(-4)) / (self.g * np.pi**2)
         # If that head is equal or smaller than H_3, the H-Q curve breaks down according to Lock. It must be remarked
@@ -667,7 +669,7 @@ class BarskePump:
             static_head_coefficient = self.static_head_coefficient_BEP_Barske - (u_1 / u_2)**2
 
         # Calculate real static head
-        H_static_real = static_head_coefficient
+        H_static_real = static_head_coefficient * u_2**2 / (2 * self.g)
         # Calculate real total head
         H_total_real = H_static_real + (v_4**2 - v_inlet**2) / (2 * self.g)
         # Calculate head loss
@@ -677,7 +679,7 @@ class BarskePump:
         # head in the throat
         v_max = np.sqrt(2 * self.g * (H_total_real + v_inlet**2 / (2 * self.g)))
         # If velocity in the throat is above the maximum value, the H-Q curve breaks down
-        if v_max > v_3:
+        if v_3 > v_max:
             # H_loss becomes the total ideal head
             H_loss = H_total_ideal
             # Total real head becomes zero
@@ -771,12 +773,12 @@ class BarskePump:
         flow_coefficient_outlet = v_3 / u_2
 
         # Calculate impeller ideal heads and coefficients depending on the method chosen
-        if analysis_method is "Lock":
+        if analysis_method == "Lock":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
              head_coefficient_total, _) = self.__analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
             # H_s is obtained from Barske, since it is more certain approach
             H_s = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)[-1]
-        elif analysis_method is "Barske":
+        elif analysis_method == "Barske":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
              head_coefficient_total, H_s) = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)
         else:
@@ -865,7 +867,7 @@ class BarskePump:
         k_R = k_R0 * (1 + q_star + a * q_star**2)
         # Calculate total impeller width at the outlet
         if self.D_hub == self.D_2: L_2_total = self.L_2 + self.t_0 # m
-        elif self.D_hub < self.D_1: L_2_total = self.L_2 # m
+        elif self.D_hub < self.D_2: L_2_total = self.L_2 # m
         # Calculate static radial force
         F_rad_static = k_R * rho * self.g * H_total_real * self.D_2 * L_2_total # N
         # Calcualte dynamic radial force. k_R_dyn is conservatively assumed to be 0.05 which is the value given by
@@ -909,7 +911,7 @@ class BarskePump:
         eta_static = mdot * H_static_real * self.g / P_total
         eta_total = P_h_useful / P_total
         # Calculate outlet temperature
-        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_Cp(p_inlet, T_upstream))
+        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_specific_heat(p_inlet, T_upstream))
 
         # Determine torque acting on the impeller
         Torque = P_total / omega # N*m
@@ -934,65 +936,65 @@ class BarskePump:
         """A method to verify the design of the Barske pump. It will print whether all conditions are satisfied and set
          the condition flags in object properties. Impeller guidelines are from 'The Design of Open Impeller Centrifugal
           Pumps' by Barske. Expeller guidelines are from "Centrifugal Pumps" (4th edition, section 9.2.7) by Gulich."""
-        print("Veryfying pump geometry. Recommended guidelines were taken from literature and semi-empirical data,\n"
-              "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.")
+        print("\nVeryfying pump geometry. Recommended guidelines were taken from literature and semi-empirical data,\n"
+              "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.\n")
         # Verify if axial velocity at the inlet is within recommended range
         if not (5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m):
-            print(f"Impeller eye diameter v0 is {self.analysis_results_design["v_0"]} m/s."
-                  f" It should be between {5*self.feet_to_m} m/s and {12*self.feet_to_m} m/s.")
+            print(f"Impeller eye diameter v0 is {self.analysis_results_design["v_0"]:.3f} m/s."
+                  f" It should be between {5*self.feet_to_m:.3f} m/s and {12*self.feet_to_m:.3f} m/s.")
             self.design_checks["eye_velocity"] = False
         # Verify if inner blade velocity is smaller than recommended by Barske
         if self.analysis_results_design["u_1"] > 150 * self.feet_to_m:
-            print(f"Inner blade speeed u1 is {self.analysis_results_design["u_1"]} m/s."
-                  f" It should be <= {150 * self.feet_to_m} m/s.")
+            print(f"Inner blade speeed u1 is {self.analysis_results_design["u_1"]:.3f} m/s."
+                  f" It should be <= {150 * self.feet_to_m:.3f} m/s.")
             self.design_checks["LE_velocity"] = False
         # Verify if diameter ratio is greater than recommended by Barske
         if self.D_2 / self.D_1 <= 1.5:
-            print(f"Diameter ratio D2/D1 is {self.D_2 / self.D_1}."
+            print(f"Diameter ratio D2/D1 is {self.D_2 / self.D_1:.3f}."
                   f"It should be > 1.5.")
             self.design_checks["diameter_ratio"] = False
         # Verify axial widths
         if self.L_1 < 0.25 * self.D_1:
-            print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000} mm."
-                  f" It should be above {0.25 * self.D_1 * 1000} mm.")
+            print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000:.3f} mm."
+                  f" It should be above {0.25 * self.D_1 * 1000:.3f} mm.")
             self.design_checks["LE_width"] = False
         if self.L_2 < self.L_1 * self.D_1 / self.D_2:
-            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
-                  f" It should be above {self.L_1 * self.D_1 / self.D_2 * 1000} mm.")
+            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
+                  f" It should be above {self.L_1 * self.D_1 / self.D_2 * 1000:.3f} mm.")
             self.design_checks["TE_width"] = False
         # Verify that clearances are within recommended values. From Barske (pg. 7 of "The Design of Open Impeller
         # Centrifugal Pumps"), axial clearance should be 1% of D_2, but should not be greater than
         # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
         # clearance is derived, however it is just a guideline.
         if self.s_ax > min(0.01 * self.D_2, 0.04 * 0.0254):
-            print(f"Axial clearance s_ax is {self.s_ax * 1000} mm."
-                  f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000} mm.")
+            print(f"Axial clearance s_ax is {self.s_ax * 1000:.3f} mm."
+                  f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000:.3f} mm.")
             self.design_checks["radial_clearance"] = False
         if self.s_rad > self.__calcualate_radial_clearance(self.D_2):
             self.design_checks["radial_clearance"] = False
-            print(f"Radial clearance s_rad is {self.s_rad * 1000} mm."
+            print(f"Radial clearance s_rad is {self.s_rad * 1000:.3f} mm."
                   f" Semi-empirical data indicates it should be"
-                  f" below {self.__calcualate_radial_clearance(self.D_2)} mm.")
+                  f" below {self.__calcualate_radial_clearance(self.D_2)*1000:.3f} mm.")
         if self.L_2 < 3 * self.s_ax:
-            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000} mm."
-                  f" It should be greater than 3s_ax = {3 * self.s_ax * 1000} mm.")
+            print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
+                  f" It should be greater than 3s_ax = {3 * self.s_ax * 1000:.3f} mm.")
             self.design_checks["TE_width_clearance_ratio"] = False
         # Now verify expeller. First height check.
         if self.expeller is True:
             if self.h_exp_over_D_2 < 0.015 or 2 * self.h_exp_over_D_2 > 0.025:
                 self.design_checks["expeller_height"] = False
-                print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2}."
+                print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2:.3f}."
                       f" It should be between 0.015 and 0.025.")
             # Now axial clearance checks.
             if self.s_ax_exp_over_h_exp < 0.1 or self.s_ax_exp_over_h_exp > 0.2:
                 self.design_checks["expeller_clearance"] = False
-                print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp}."
+                print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp:.3f}."
                       f" It should be between 0.1 and 0.2.")
             # Now width check.
             if self.t_exp_2 < 2 * self.h_exp:
                 self.design_checks["expeller_width"] = False
-                print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000} mm."
-                      f" It should be above {2 * self.h_exp * 1000} mm.")
+                print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000:.3f} mm."
+                      f" It should be above {2 * self.h_exp * 1000:.3f} mm.")
 
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
@@ -1021,7 +1023,6 @@ class BarskePump:
             ["L_diffuser", self.L_diffuser * 1e3, "mm", "Diffuser length"],
 
             # Areas
-            ["A_0", self.A_0 * 1e6, "mm^2", "Impeller eye area"],
             ["A_3", self.A_3 * 1e6, "mm^2", "Diffuser throat area"],
             ["A_4", self.A_4 * 1e6, "mm^2", "Diffuser exit area"],
             ["A_4/A_3", self.A_4_over_A_3, "-", "Diffuser area ratio"],
@@ -1059,6 +1060,7 @@ class BarskePump:
         ]
 
         # Print table
+        print("\n GEOMETRY OF THE PUMP:")
         print(tabulate(
             rows,
             headers=["Parameter", "Value", "Unit", "Description"],
@@ -1182,7 +1184,7 @@ class BarskePump:
         ax_top.grid(True, which="major")
         ax_top.grid(True, which="minor", linestyle=":")
         ax_top.minorticks_on()
-        ax_top.legend()
+        ax_top.legend(loc="upper right")
         ax_top.set_aspect("equal")
 
         # Plot side view geometry now in the next subfigure
@@ -1199,7 +1201,7 @@ class BarskePump:
             blade_side_point_2 = np.array([r_hub, t0])
             blade_side_point_3 = np.array([r_hub, 0])
             # Now trailing edge points
-            y2 = np.tan(alpha1) * (r2 - r1)
+            y2 = np.tan((np.pi / 2) - alpha1) * (r2 - r1)
             blade_side_point_4 = np.array([r2, y2])
             blade_side_point_5 = np.array([r2, y2 + L2])
             # Create blade polygon
@@ -1271,14 +1273,16 @@ class BarskePump:
             # Point at the inner diameter of the blades
             casing_point_2 = np.array([r1, -s_ax])
             # Points next to the trailing edge
-            casing_point_3 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
-            casing_point_4 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            casing_point_3 = np.array([blade_side_point_4[0], blade_side_point_4[1] - s_ax])
+            casing_point_4 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
+            casing_point_5 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            casing_point_6 = np.array([blade_side_point_5[0], blade_side_point_5[1] + s_ax])
             # Point next to the leading edge
-            casing_point_5 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
+            casing_point_7 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
             # Point next to the impeller eye
-            y_eye = casing_point_4[1] + (casing_point_5[1] - casing_point_4[1]) * (r_eye - casing_point_4[0]) \
-                    / (casing_point_5[0] - casing_point_4[0])
-            casing_point_6 = np.array([r_eye, y_eye])
+            y_eye = casing_point_6[1] + (casing_point_7[1] - casing_point_6[1]) * (r_eye - casing_point_6[0]) \
+                    / (casing_point_7[0] - casing_point_6[0])
+            casing_point_8 = np.array([r_eye, y_eye])
             # Create pump casing polygon
             casing_polygon = np.array([
                 casing_point_0,
@@ -1287,7 +1291,9 @@ class BarskePump:
                 casing_point_3,
                 casing_point_4,
                 casing_point_5,
-                casing_point_6
+                casing_point_6,
+                casing_point_7,
+                casing_point_8
             ])
         # Now consider pump geometry if there is a step change in the casing
         elif self.D_hub == self.D_2 or self.expeller:
@@ -1303,14 +1309,16 @@ class BarskePump:
             casing_point_2 = np.array([r_w, -s_ax_hub])
             casing_point_3 = np.array([r_w, blade_side_point_4[1] - s_ax])
             # Get casing points around trailing edge
-            casing_point_4 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
-            casing_point_5 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            casing_point_4 = np.array([blade_side_point_4[0], blade_side_point_4[1] - s_ax])
+            casing_point_5 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
+            casing_point_6 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            casing_point_7 = np.array([blade_side_point_5[0], blade_side_point_5[1] + s_ax])
             # Point next to the leading edge
-            casing_point_6 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
+            casing_point_8 = np.array([blade_side_point_0[0] + s_rad, blade_side_point_0[1] + s_ax])
             # Point next to the impeller eye
-            y_eye = casing_point_5[1] + (casing_point_6[1] - casing_point_5[1]) * (r_eye - casing_point_5[0]) \
-                    / (casing_point_6[0] - casing_point_5[0])
-            casing_point_7 = np.array([r_eye, y_eye])
+            y_eye = casing_point_7[1] + (casing_point_8[1] - casing_point_7[1]) * (r_eye - casing_point_7[0]) \
+                    / (casing_point_8[0] - casing_point_7[0])
+            casing_point_9 = np.array([r_eye, y_eye])
             # Create pump casing polygon
             casing_polygon = np.array([
                 casing_point_0,
@@ -1320,7 +1328,9 @@ class BarskePump:
                 casing_point_4,
                 casing_point_5,
                 casing_point_6,
-                casing_point_7
+                casing_point_7,
+                casing_point_8,
+                casing_point_9
             ])
 
         # Plot it
@@ -1351,7 +1361,8 @@ class BarskePump:
         ax_side.grid(True, which="major")
         ax_side.grid(True, which="minor", linestyle=":")
         ax_side.minorticks_on()
-        ax_side.legend()
+        ax_side.set_aspect("equal")
+        ax_side.legend(loc="upper right")
 
         # Show figure
         plt.tight_layout()
@@ -1369,10 +1380,10 @@ class BarskePump:
         # Create rows
         rows = [
             ["method", r["method"], "-", "Analysis method"],
-            ["fluid", r["fluid"].get_name, "-", "Fluid used for analysis"],
+            ["fluid", r["fluid"].name, "-", "Fluid used for analysis"],
             ["RPM", r["RPM"], "1/min", "Rotations per minute"],
             ["mdot", r["mdot"], "kg/s", "Mass flow rate"],
-            ["Q", r["Q"], "m^3/s", "Volumetric flow rate"],
+            ["Q", r["Q"]*1e3, "L/s", "Volumetric flow rate"],
             ["dp", r["dp"] * 1e-5, "bar", "Pressure rise across pump"],
 
             ["flow_coefficient_inlet", r["flow_coefficient_inlet"], "-", "Flow coefficient at impeller inlet"],
@@ -1406,7 +1417,6 @@ class BarskePump:
             ["p_shaft", r["p_shaft"] * 1e-5, "bar", "Pressure at impeller shaft"],
             ["p_hub", r["p_hub"] * 1e-5, "bar", "Pressure at the edge of impeller hub"],
             ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
-            ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
             ["p_4", r["p_4"] * 1e-5, "bar", "Pressure at diffuser outlet"],
 
             ["v_inlet", r["v_inlet"], "m/s", "Velocity in inlet pipe"],
@@ -1428,7 +1438,13 @@ class BarskePump:
             ["Torque", r["Torque"], "N*m", "Pump torque"],
         ]
 
+        # Postprocess table so that numbers to three digital places are printed
+        def format(x):
+            return f"{x:.3f}" if isinstance(x, (int, float)) else x
+        rows = [[format(v) for v in row] for row in rows]
+
         # Print table
+        print("\n ANALYSIS RESULTS:")
         print(tabulate(
             rows,
             headers=["Parameter", "Value", "Unit", "Description"],
