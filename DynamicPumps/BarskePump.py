@@ -854,6 +854,27 @@ class BarskePump:
         # Now calculate total axial force
         F_ax = F_hydraulic - F_momentum
 
+        # Now calculate radial forces. Procedure is based on Table 9.7 from 4th edition of "Centrifugal Pumps" by
+        # Gulich. First get flow at BEP at given RPM and calculte q_star
+        Q_opt = self.A_3 * self.flow_coefficient_BEP * u_2 # m3
+        q_star = Q / Q_opt
+        # k_R0 is conservatively chosen to be 0.1, while a is 0.18. Both are values given by Gulich.
+        k_R0 = 0.1
+        a = 0.18
+        # Now calculate k_R and radial static force.
+        k_R = k_R0 * (1 + q_star + a * q_star**2)
+        # Calculate total impeller width at the outlet
+        if self.D_hub == self.D_2: L_2_total = self.L_2 + self.t_0 # m
+        elif self.D_hub < self.D_1: L_2_total = self.L_2 # m
+        # Calculate static radial force
+        F_rad_static = k_R * rho * self.g * H_total_real * self.D_2 * L_2_total # N
+        # Calcualte dynamic radial force. k_R_dyn is conservatively assumed to be 0.05 which is the value given by
+        # Gulich
+        k_R_dyn = 0.05
+        F_rad_dynamic = k_R_dyn * rho * self.g * H_total_real * self.D_2 * L_2_total # N
+        # Calculate total peak radial force
+        F_rad = F_rad_static + F_rad_dynamic # N
+
         # Calculate pressure at the shaft. This time assume quadratic variation and forced vortex
         # (more realistic results).
         p_hub = (p_2 - p_0) * (self.D_hub / self.D_2)**2 + p_0
@@ -906,7 +927,7 @@ class BarskePump:
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
                             "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4, "v_inlet": v_inlet,
                             "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax, "v_1m": v_1m, "v_1": v_1, "u_2": u_2, "v_3": v_3,
-                            "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "Torque": Torque}
+                            "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "F_rad": F_rad, "Torque": Torque}
         return analysis_results
 
     def verify_design(self):
@@ -1054,6 +1075,7 @@ class BarskePump:
         D3 = self.D_3 * 1e3 # mm
         D4 = self.D_4 * 1e3 # mm
         D_hub = self.D_hub * 1e3 # mm
+        D_shaft = self.D_shaft * 1e3 # mm
         L1 = self.L_1 * 1e3 # mm
         L2 = self.L_2 * 1e3 # mm
         L_diffuser = self.L_diffuser * 1e3 # mm
@@ -1062,14 +1084,24 @@ class BarskePump:
         t2 = self.t_2 * 1e3 # mm
         s_ax = self.s_ax * 1e3 # mm
         s_rad = self.s_rad * 1e3 # mm
-        alpha2 = np.deg2rad(self.alpha_2) # deg
-        alpha1 = np.deg2rad(self.alpha_1) # deg
+        alpha2 = np.deg2rad(self.alpha_2) # rad
+        alpha1 = np.deg2rad(self.alpha_1) # rad
         # Get radiuses
         r1 = D1 / 2 # mm
         r2 = D2 / 2 # mm
         r_eye = D0 / 2 # mm
         r_hub = D_hub / 2 # mm
+        r_shaft = D_shaft / 2
         r_volute = (D2 + 2 * s_rad) / 2 # mm
+        # If hub has the same diameter as impeller or expeller is used, get their radial clearance
+        if self.expeller or self.D_hub == self.D_2:
+            s_hub_rad = self.s_rad_hub * 1e3    # mm
+        # If expeller is present, get the rest of its parameters
+        if self.expeller:
+            D_exp = self.D_exp * 1e3    # mm
+            h_exp = self.h_exp * 1e3    # mm
+            s_ax_exp = self.s_ax_exp * 1e3  # mm
+            r_exp = D_exp / 2 # mm
 
         # First create figure with two subplots - one subplot will be for top view and another for side view
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
@@ -1113,7 +1145,7 @@ class BarskePump:
         # Plot top view geometry
         ax_top = axes[0]
         theta = np.linspace(0, 2 * np.pi, 300)
-        ax_top.plot(r_eye * np.cos(theta), r_eye * np.sin(theta), label="Impeller eye")
+        ax_top.plot(r_eye * np.cos(theta), r_eye * np.sin(theta), label="Impeller eye", linestyle='--')
         ax_top.plot(r_hub * np.cos(theta), r_hub * np.sin(theta), label="Impeller hub")
         ax_top.plot(r_volute * np.cos(theta), r_volute * np.sin(theta), label="Pump volute")
         # Plot all blades
@@ -1156,37 +1188,49 @@ class BarskePump:
         # Plot side view geometry now in the next subfigure
         ax_side = axes[1]
 
-        # Create blade geometry
-        blade_side_point_0 = np.array([r1, 0])
-        blade_side_point_1 = np.array([r1, t0 + L1])
-        y2 = np.tan(alpha1) * (r2 - r1)
-        blade_side_point_2 = np.array([r2, y2])
-        blade_side_point_3 = np.array([r2, y2 + L2])
-        # Create blade polygon
-        blade_side_polygon = np.array([
-            blade_side_point_0,
-            blade_side_point_1,
-            blade_side_point_3,
-            blade_side_point_2,
-            blade_side_point_0
-        ])
+
+        # Create blade geometry. First create blade polygon for the case when hub diameter does not cover the whole
+        # impeller
+        if self.D_hub != self.D_2:
+            # Compute leading edge points.
+            blade_side_point_0 = np.array([r1, t0 + L1])
+            blade_side_point_1 = np.array([r1, t0])
+            # Compute intermediate points at the hub
+            blade_side_point_2 = np.array([r_hub, t0])
+            blade_side_point_3 = np.array([r_hub, 0])
+            # Now trailing edge points
+            y2 = np.tan(alpha1) * (r2 - r1)
+            blade_side_point_4 = np.array([r2, y2])
+            blade_side_point_5 = np.array([r2, y2 + L2])
+            # Create blade polygon
+            blade_side_polygon = np.array([
+                blade_side_point_0,
+                blade_side_point_1,
+                blade_side_point_2,
+                blade_side_point_3,
+                blade_side_point_4,
+                blade_side_point_5,
+                blade_side_point_0
+            ])
+        # Now the option when hub covers the whole impeller
+        elif self.D_hub == self.D_2:
+            # Compute leading edge points.
+            blade_side_point_0 = np.array([r1, t0 + L1])
+            blade_side_point_1 = np.array([r1, t0])
+            # Now trailing edge points
+            blade_side_point_2 = np.array([r2, t0])
+            blade_side_point_3 = np.array([r2, t0 + L2])
+            # Create blade polygon
+            blade_side_polygon = np.array([
+                blade_side_point_0,
+                blade_side_point_1,
+                blade_side_point_2,
+                blade_side_point_3,
+                blade_side_point_0,
+            ])
+
         # Plot it
         ax_side.plot(blade_side_polygon[:, 0], blade_side_polygon[:, 1], label="Impeller blade")
-
-        # Create pump casing geometry
-        casing_point_0 = np.array([r1, -s_ax])
-        casing_point_1 = np.array([r1, t0 + L1 + s_ax])
-        casing_point_2 = np.array([r2 + s_rad, y2 - s_ax])
-        casing_point_3 = np.array([r2 + s_rad, y2 + L2 + s_ax])
-        # Create pump casing polygon
-        casing_polygon = np.array([
-            casing_point_0,
-            casing_point_1,
-            casing_point_3,
-            casing_point_2
-        ])
-        # Plot it
-        ax_side.plot(casing_polygon[:, 0], casing_polygon[:, 1], label="Pump casing")
 
         # Create impeller hub geometry
         hub_point_0 = np.array([0, 0])
@@ -1202,6 +1246,103 @@ class BarskePump:
         ])
         # Plot it
         ax_side.plot(hub_polygon[:, 0], hub_polygon[:, 1], label="Impeller hub")
+
+        # Create shaft geometry
+        shaft_point_0 = np.array([0, 0])
+        shaft_point_1 = np.array([r_shaft, 0])
+        # Determine length of shaft to plot
+        if not self.expeller: l_shaft = 2 * s_ax
+        else: l_shaft = h_exp + 2 * s_ax_exp
+        shaft_point_2 = np.array([r_shaft, - l_shaft])
+        # Create shaft polygon
+        shaft_polygon = np.array([
+            shaft_point_0,
+            shaft_point_1,
+            shaft_point_2
+        ])
+        # Plot it
+        ax_side.plot(shaft_polygon[:, 0], shaft_polygon[:, 1], label="Impeller shaft")
+
+        # Now create pump casing geometry. First consider option if there is no step change in geometry.
+        if (self.alpha_1 != 90 or self.D_hub != self.D_2) and not self.expeller:
+            # Points next to the shaft
+            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
+            casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
+            # Point at the inner diameter of the blades
+            casing_point_2 = np.array([r1, -s_ax])
+            # Points next to the trailing edge
+            casing_point_3 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
+            casing_point_4 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            # Point next to the leading edge
+            casing_point_5 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
+            # Point next to the impeller eye
+            y_eye = casing_point_4[1] + (casing_point_5[1] - casing_point_4[1]) * (r_eye - casing_point_4[0]) \
+                    / (casing_point_5[0] - casing_point_4[0])
+            casing_point_6 = np.array([r_eye, y_eye])
+            # Create pump casing polygon
+            casing_polygon = np.array([
+                casing_point_0,
+                casing_point_1,
+                casing_point_2,
+                casing_point_3,
+                casing_point_4,
+                casing_point_5,
+                casing_point_6
+            ])
+        # Now consider pump geometry if there is a step change in the casing
+        elif self.D_hub == self.D_2 or self.expeller:
+            # Points at the shaft
+            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
+            # Get spacing between hub and casing
+            if self.expeller: s_ax_hub = h_exp + s_ax_exp
+            else: s_ax_hub = s_ax
+            casing_point_1 = np.array([r_shaft * 1.05, -s_ax_hub])
+            # Now get radius of the intermediate points
+            r_w = r_hub + s_hub_rad
+            # Get intermediate points
+            casing_point_2 = np.array([r_w, -s_ax_hub])
+            casing_point_3 = np.array([r_w, blade_side_point_4[1] - s_ax])
+            # Get casing points around trailing edge
+            casing_point_4 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
+            casing_point_5 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
+            # Point next to the leading edge
+            casing_point_6 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
+            # Point next to the impeller eye
+            y_eye = casing_point_5[1] + (casing_point_6[1] - casing_point_5[1]) * (r_eye - casing_point_5[0]) \
+                    / (casing_point_6[0] - casing_point_5[0])
+            casing_point_7 = np.array([r_eye, y_eye])
+            # Create pump casing polygon
+            casing_polygon = np.array([
+                casing_point_0,
+                casing_point_1,
+                casing_point_2,
+                casing_point_3,
+                casing_point_4,
+                casing_point_5,
+                casing_point_6,
+                casing_point_7
+            ])
+
+        # Plot it
+        ax_side.plot(casing_polygon[:, 0], casing_polygon[:, 1], label="Pump casing")
+
+        # If expeller is present, plot it now too
+        if self.expeller:
+            # Get points at the bottom edge
+            expeller_point_0 = np.array([r_shaft * 1.05, -h_exp])
+            expeller_point_1 = np.array([r_exp, -h_exp])
+            # At the top edge
+            expeller_point_2 = np.array([r_exp, 0])
+            expeller_point_3 = np.array([r_shaft * 1.05, 0])
+            # Create expeller polygon
+            expeller_polygon = np.array([
+                expeller_point_3,
+                expeller_point_0,
+                expeller_point_1,
+                expeller_point_2
+            ])
+            # Plot it
+            ax_side.plot(expeller_polygon[:, 0], expeller_polygon[:, 1], label="Expeller")
 
         # Set graph options
         ax_side.set_title("Side view")
@@ -1283,6 +1424,7 @@ class BarskePump:
             ["T_4", r["T_4"], "K", "Outlet temperature"],
 
             ["F_ax", r["F_ax"], "N", "Axial force"],
+            ["F_rad", r["F_rad"], "N", "Radial force"],
             ["Torque", r["Torque"], "N*m", "Pump torque"],
         ]
 
