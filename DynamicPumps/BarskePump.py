@@ -218,8 +218,8 @@ class BarskePump:
              If "area ratio", diffuser_area_ratio will be used to calculate outlet diameter. If "outlet diameter", given
              outlet diameter D_4 will be assigned and diffuser_area_ratio will be calculated.
         :param string hub_sizing_method: Method used for sizing the hub diameter, either "diameter fraction" or
-            "outlet diameter". If "diameter fraction", D_hub_over_D_1 will be used to calculate hub diameter. If "outlet diameter", given
-             outlet diameter D_2 will be assigned and D_hub_over_D_1 will be calculated.
+            "outlet diameter". If "diameter fraction", D_hub_over_D_1 will be used to calculate hub diameter.
+             If "outlet diameter", given outlet diameter D_2 will be assigned and D_hub_over_D_1 will be calculated.
         :param float or int t_hub: Hub thickness, m
         :param float or int t_LE: Leading edge (suction side) thickness, m
         :param float or int D_inlet: Inlet pipe diameter, m
@@ -341,6 +341,8 @@ class BarskePump:
         # Find outlet diameter that satisfies requirementsa
         # First define a function that calculates impeller's dimensions and H as a function of D_2
         def get_impeller_head(D_2):
+            # Set class property
+            self.D_2 = D_2
             # Calculate blade tip speed
             u_2 = D_2 * omega / 2 # m/s
 
@@ -923,7 +925,7 @@ class BarskePump:
                             "flow_coefficient_inlet": flow_coefficient_inlet,
                             "flow_coefficient_outlet": flow_coefficient_outlet,
                             "static_head_coefficient": head_coefficient_static, "P_h_useful": P_h_useful,
-                            "P_h_losses": P_h_losses, "P_h_total": P_total, "P_total": P_total,
+                            "P_h_losses": P_h_losses, "P_h_total": P_h_total, "P_total": P_total,
                             "P_f_impeller": P_f_impeller, "P_f_expeller": P_f_expeller, "P_f_total": P_f_total,
                             "eta_total": eta_total, "eta_static": eta_static, "eta_losses": eta_losses,
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
