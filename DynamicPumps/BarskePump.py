@@ -410,7 +410,7 @@ class BarskePump:
 
             # Analyse performance either with Lobanoff or Lock method
             if diameter_sizing_method == "Lock":
-                H = self.__analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
+                H = self.__analysis_Lock(u_2, u_1, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
                                          self.K_factor_design)[0]
             elif diameter_sizing_method == "Lobanoff":
                 H = self.__analysis_Lobanoff(u_1, u_2, Q_design)[0]
@@ -442,7 +442,7 @@ class BarskePump:
 
         # For informational purposes, obtain static head coefficient for Lock's method as well
         self.static_head_coefficient_BEP_Lock =\
-            self.__analysis_Lock(u_2, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
+            self.__analysis_Lock(u_2, u_1, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
                                  self.K_factor_design)[5]
 
         # Size the hub. First if diameter fraction method is used.
@@ -508,11 +508,12 @@ class BarskePump:
         # Finally, design can be verified
         self.verify_design()
 
-    def __analysis_Lock(self, u_2, Q, fluid, p_inlet, T_inlet, eta_losses, K_factor):
+    def __analysis_Lock(self, u_2, u_1, Q, fluid, p_inlet, T_inlet, eta_losses, K_factor):
         """A method to analyse the pump using Lock's method presented in 'A Forced
             Vortex Pump for High Speed, High Pressure, Low Flow Applications'.
 
         :param float or int u_2: Tip velocity of the impeller, m/s
+        :param float or int u_1: Leading edge velocity of the impeller, m/s
         :param float or int Q: Volumetric flow, m^3 / s.
         :param Fluid fluid: Object representing fluid used for the analysis.
         :param float or int p_inlet: Static pressure in the inlet pipe, Pa.
@@ -547,27 +548,35 @@ class BarskePump:
         dummy_1c = 24 * (self.D_4**(-4) - self.D_inlet**(-4)) / (np.pi**2 * self.g)
         Q_ops = np.sqrt(dummy_1a / (dummy_1b + dummy_1c)) # m^3 / s
 
-        # Now calculate ideal total head
-        H_total_ideal = dummy_1a - C_h * K_factor * (u_2**2 / self.g) * (self.D_1 / self.D_2) * (1 - (Q / Q_ops))
-        # Now calculate ideal static head
+        # First calculate total ideal head. It is assumed equation for total head without prerotation is appropriate,
+        # since this is the formula recalled by Lock. Futhermore, K_factors are small and deacrease with flowrate,
+        # which supports using the formula below.
+        H_total_ideal = (2 * u_2**2 - u_1**2) / (2 * self.g)
+        # Then calculate total static head
         H_static_ideal = H_total_ideal + (- dummy_1c / 3) * Q**2
+        # Now calculate total head without diffuser losses
+        H_total_wo_diff_loss = dummy_1a - C_h * K_factor * (u_2**2 / self.g) * (self.D_1 / self.D_2) * (1 - (Q / Q_ops))
+        # Now calculate static head without diffuser losses
+        H_static_wo_diff_loss = H_total_wo_diff_loss + (- dummy_1c / 3) * Q**2
         # Calculate diffuser losses
-        H_loss = (dummy_1b / 3) * Q**2
+        H_loss_diff = (dummy_1b / 3) * Q**2
         # Then calculate real total head
-        H_total_real = H_total_ideal - H_loss
+        H_total_real = H_total_wo_diff_loss - H_loss_diff
         # Now calculate real static head
-        H_static_real = H_static_ideal - H_loss
+        H_static_real = H_static_wo_diff_loss - H_loss_diff
+        # Calculate total losses
+        H_loss = H_total_ideal - H_total_real
         # Also calculate static head due to forced vortex. This is total head minus impeller exit velocity.
         # This expression was derived from first principles, since Lock's does not separate total head into static and
         # dynamic ones like Barske. Hence, it is recommended to use __analysis_Barske to get H_s.
-        H_s = H_total_ideal - u_2**2 / (2 * self.g)
+        H_s = H_total_wo_diff_loss - u_2**2 / (2 * self.g)
 
         # Also determine whether Q is above the maximum volumetric flow. First determine head at vapor pressure wrt.
         # inlet pressure.
         H_vp = functions.get_H_from_dp(fluid=fluid, pressure_rise=fluid.get_vapor_pressure(T_inlet) - p_inlet,
                                        p_0=p_inlet, T_0=T_inlet)
         # Now determine the head in the throat wrt. inlet pressure
-        H_3 = H_static_real + H_loss - 8 * Q**2 * (self.D_3**(-4) - self.D_4**(-4)) / (self.g * np.pi**2)
+        H_3 = H_static_real + H_loss_diff - 8 * Q**2 * (self.D_3**(-4) - self.D_4**(-4)) / (self.g * np.pi**2)
         # If that head is equal or smaller than H_3, the H-Q curve breaks down according to Lock. It must be remarked
         # that Q_ops may be greater than the limiting Q value.
         if H_3 <= H_vp:
@@ -777,7 +786,7 @@ class BarskePump:
         # Calculate impeller ideal heads and coefficients depending on the method chosen
         if analysis_method == "Lock":
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
-             head_coefficient_total, _) = self.__analysis_Lock(u_2, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
+             head_coefficient_total, _) = self.__analysis_Lock(u_2, u_1, Q, fluid, p_inlet, T_upstream, eta_losses, K_factor)
             # H_s is obtained from Barske, since it is more certain approach
             H_s = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)[-1]
         elif analysis_method == "Barske":
