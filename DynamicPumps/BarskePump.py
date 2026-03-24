@@ -373,7 +373,8 @@ class BarskePump:
                 self.L_2 = (0.02 + 0.5 * (self.specific_speed/100) - 0.03 * (self.specific_speed/100)**2
                        - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 # Calculate L_1, while taking blade thickness into account
-                self.L_1 = (D_2 * self.L_2 - self.n_blades * self.L_2 * self.t_2) / self.D_1 # m
+                self.L_1 = (D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2) / \
+                           (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
             elif widths_sizing_method in ("diameter fraction", "Rocketdyne"):
                 if widths_sizing_method == "diameter fraction":
@@ -381,7 +382,8 @@ class BarskePump:
                 elif widths_sizing_method == "Rocketdyne":
                     self.L_1 = np.pi * self.D_1 / (4 * r_factor) # m
                 # Calculate L_2, while taking blade thickness into account
-                self.L_2 = self.D_1 * self.L_1 / (D_2 - self.n_blades * self.t_2)  # m
+                self.L_2 = (self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1) / \
+                           (D_2 * np.pi- self.n_blades * self.t_2)  # m
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
