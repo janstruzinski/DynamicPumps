@@ -33,6 +33,8 @@ class BarskePump:
         self.L_diffuser = None # diffuser length, m
 
         # Areas
+        self.A_1 = None  # flow area at the inlet of the impeller, m^2
+        self.A_2 = None  # flow area at the inlet of the impeller, m^2
         self.A_3 = None # impeller throat diffuser area, m^2
         self.A_4 = None # impeller exit diffuser area, m^2
         self.A_4_over_A_3 = None # diffuser area ratio, -
@@ -116,10 +118,11 @@ class BarskePump:
                                         "v_inlet": None,  # Velocity in the inlet pipe, m/s
                                         "v_0": None, # Velocity at the impeller eye, m/s
                                         "u_1": None, # Blade velocity at the impeller inlet, m/s
-                                        "v_1ax": None,  # Axial velocity at the impeller inlet, m/s
-                                        "v_1m": None,  # Meridional velocity at the impeller inlet, m/s
-                                        "v_1": None,  # Absolute velocity at the impeller inlet, m/s
+                                        "v_1ax": None,  # Absolute flow axial velocity at the impeller inlet, m/s
+                                        "v_1m": None,  # Absolute flow meridional velocity at the impeller inlet, m/s
+                                        "w_1": None,  # Relative flow velocity at the impeller inlet, m/s
                                         "u_2": None, # Blade velocity at the impeller outlet, m/s
+                                        "w_2": None,  # Relative flow velocity at the impeller inlet, m/s
                                         "v_3": None, # Fluid velocity in the diffuser throat, m/s
                                         "v_4": None, # Fluid velocity at the diffuser outlet, m/s
                                         "T_4": None,  # Outlet temperature, K
@@ -373,17 +376,21 @@ class BarskePump:
                 self.L_2 = (0.02 + 0.5 * (self.specific_speed/100) - 0.03 * (self.specific_speed/100)**2
                        - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 # Calculate L_1, while taking blade thickness into account
-                self.L_1 = (D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2) / \
-                           (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
+                self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
+                self.L_1 = self.A_2 / (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
+                self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
             elif widths_sizing_method in ("diameter fraction", "Rocketdyne"):
                 if widths_sizing_method == "diameter fraction":
                     self.L_1 = L_1_over_D_1 * self.D_1   # m
                 elif widths_sizing_method == "Rocketdyne":
-                    self.L_1 = np.pi * self.D_1 / (4 * r_factor) # m
+                    # Rocketdyne method was slightly changed so that blade thickness is taken into account
+                    self.L_1 = ((0.25 * np.pi * self.D_1**2) / (self.D_1 * np.pi - self.n_blades * self.t_1)) \
+                               / r_factor # m
                 # Calculate L_2, while taking blade thickness into account
-                self.L_2 = (self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1) / \
-                           (D_2 * np.pi- self.n_blades * self.t_2)  # m
+                self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
+                self.L_2 = self.A_1 / (D_2 * np.pi- self.n_blades * self.t_2)  # m
+                self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
@@ -403,7 +410,7 @@ class BarskePump:
             alpha_0 = np.arctan(((D_2 - self.D_1) / 2) / (self.L_1 + self.t_0 - self.L_2 - dy_TE)) * 180 / np.pi # degrees
             # Now calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
-            alpha_2 = np.arctan((Q_design / (self.L_1 * np.pi * self.D_1)) / u_1) * 180 / np.pi # degrees
+            alpha_2 = np.arctan((Q_design / self.A_1) / u_1) * 180 / np.pi # degrees
 
             # Calculate axial and radial clearances between the casing and the impeller.
             s_ax = s_ax_over_D_2 * D_2 # m
@@ -420,7 +427,7 @@ class BarskePump:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
-            return (H, u_2, self.D_3, self.D_4, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser, self.L_1, self.L_2,
+            return (H, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser, self.L_1, self.L_2,
                     alpha_0, alpha_2, s_ax, s_rad)
 
         # Now solve the function for D_2 and get all other remaining dimensions. Typical head coefficient for Barske
@@ -429,8 +436,8 @@ class BarskePump:
         D_2_estimate = (2 / omega) * np.sqrt(2 * self.g * H_required / 1.4)
         self.D_2 = opt.toms748(f=lambda x: H_required - get_impeller_head(x)[0], a=self.D_1 * 1.1, b=2*D_2_estimate)
         # Now get the remaining results
-        (H_design, u_2, self.D_3, self.D_4, self.A_3, self.A_4, self.A_4_over_A_3, self.L_diffuser, self.L_1, self.L_2,
-         self.alpha_0, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+        (H_design, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, self.A_4_over_A_3, self.L_diffuser,
+         self.L_1, self.L_2, self.alpha_0, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
 
         # Calculate ratio of L_1 to D_1
         self.L_1_over_D_1 = self.L_1 / self.D_1
@@ -765,10 +772,12 @@ class BarskePump:
         omega = RPM * 2 * np.pi / 60 # rad / s
         u_1 = omega * self.D_1 / 2
         v_1ax = 4 * Q / (np.pi * self.D_1**2)
-        v_1m = Q / (np.pi * self.D_1 * self.L_1)
-        v_1 = np.sqrt(u_1**2 + v_1m**2)
+        v_1m = Q / self.A_1
+        w_1 = np.sqrt(u_1**2 + v_1m**2)
         # Calculate u_2
         u_2 = omega * self.D_2 / 2
+        # Calculate w_2
+        w_2 = Q / self.A_2
         # Calculate v_3 and v_4
         v_3 = 4 * Q / (np.pi * self.D_3 ** 2)
         v_4 = 4 * Q / (np.pi * self.D_4 ** 2)
@@ -941,8 +950,8 @@ class BarskePump:
                             "eta_total": eta_total, "eta_static": eta_static, "eta_losses": eta_losses,
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
                             "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4, "v_inlet": v_inlet,
-                            "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax, "v_1m": v_1m, "v_1": v_1, "u_2": u_2, "v_3": v_3,
-                            "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "F_rad": F_rad, "Torque": Torque}
+                            "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax, "v_1m": v_1m, "w_1": w_1, "u_2": u_2, "w_2": w_2,
+                            "v_3": v_3, "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "F_rad": F_rad, "Torque": Torque}
         return analysis_results
 
     def verify_design(self):
@@ -966,14 +975,18 @@ class BarskePump:
             print(f"Diameter ratio D2/D1 is {self.D_2 / self.D_1:.3f}."
                   f"It should be > 1.5.")
             self.design_checks["diameter_ratio"] = False
-        # Verify axial widths
-        if self.L_1 < 0.25 * self.D_1:
+        # Verify axial widths. Barske did not take into account blade thicknesses, which are taken into account here.
+        # The first was derived from L_1 => 0.25 D_1 recommendation from Barske,
+        # while the second was derived from L_2 => L_1 * D_1 / D_2
+        L_1_recommended = (0.25 * np.pi * self.D_1**2) / (np.pi * self.D_1 - self.n_blades * self.t_1)
+        if self.L_1 < L_1_recommended:
             print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000:.3f} mm."
-                  f" It should be above {0.25 * self.D_1 * 1000:.3f} mm.")
+                  f" It should be above or equal {L_1_recommended * 1000:.3f} mm.")
             self.design_checks["LE_width"] = False
-        if self.L_2 < self.L_1 * self.D_1 / self.D_2:
+        L_2_recommended = self.A_1 / (self.D_2 * np.pi - self.n_blades * self.t_2)
+        if self.L_2 < L_2_recommended:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
-                  f" It should be above {self.L_1 * self.D_1 / self.D_2 * 1000:.3f} mm.")
+                  f" It should be above or equal {L_2_recommended * 1000:.3f} mm.")
             self.design_checks["TE_width"] = False
         # Verify that clearances are within recommended values. From Barske (pg. 7 of "The Design of Open Impeller
         # Centrifugal Pumps"), axial clearance should be 1% of D_2, but should not be greater than
@@ -1036,6 +1049,8 @@ class BarskePump:
             ["L_diffuser", self.L_diffuser * 1e3, "mm", "Diffuser length"],
 
             # Areas
+            ["A_1", self.A_1 * 1e6, "mm^2", "Impeller inlet flow area"],
+            ["A_2", self.A_2 * 1e6, "mm^2", "Impeller outlet flow area"],
             ["A_3", self.A_3 * 1e6, "mm^2", "Diffuser throat area"],
             ["A_4", self.A_4 * 1e6, "mm^2", "Diffuser exit area"],
             ["A_4/A_3", self.A_4_over_A_3, "-", "Diffuser area ratio"],
@@ -1435,12 +1450,13 @@ class BarskePump:
             ["v_inlet", r["v_inlet"], "m/s", "Velocity in inlet pipe"],
             ["v_0", r["v_0"], "m/s", "Velocity at impeller eye"],
 
-            ["u_1", r["u_1"], "m/s", "Blade velocity at impeller inlet"],
-            ["v_1ax", r["v_1ax"], "m/s", "Axial velocity at impeller inlet"],
-            ["v_1m", r["v_1m"], "m/s", "Meridional velocity at impeller inlet"],
-            ["v_1", r["v_1"], "m/s", "Absolute velocity at impeller inlet"],
+            ["u_1", r["u_1"], "m/s", "Leading edge blade velocity"],
+            ["v_1ax", r["v_1ax"], "m/s", "Absolute axial velocity at impeller inlet"],
+            ["v_1m", r["v_1m"], "m/s", "Absolute meridional velocity at impeller inlet"],
+            ["w_1", r["w_1"], "m/s", "Relative velocity at impeller inlet"],
 
-            ["u_2", r["u_2"], "m/s", "Blade velocity at impeller outlet"],
+            ["u_2", r["u_2"], "m/s", "Blade tip velocity"],
+            ["w_2", r["w_2"], "m/s", "Relative flow velocity at the impeller outlet"],
             ["v_3", r["v_3"], "m/s", "Velocity in diffuser throat"],
             ["v_4", r["v_4"], "m/s", "Velocity at diffuser outlet"],
 
