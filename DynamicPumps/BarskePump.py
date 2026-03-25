@@ -69,7 +69,7 @@ class BarskePump:
 
         # Other
         self.n_blades = None # number of blades, -
-        self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/h)
+        self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/s)
         self.eta_losses_design = None  # fraction of dynamic head lost in the diffuser used for sizing, -.
         self.K_factor_design = None # factor for prerotation at zero flow as a fraction of inlet tip speed used in
         # sizing with Lock's analysis method, -
@@ -1073,7 +1073,7 @@ class BarskePump:
 
             # Other
             ["n_blades", self.n_blades, "-", "Number of blades"],
-            ["specific_speed", self.specific_speed, "m,RPM,m^3/h", "Specific speed (EU)"],
+            ["specific_speed", self.specific_speed, "m, RPM, m^3/s", "Specific speed (EU)"],
 
             # Expeller
             ["D_exp", safe(self.D_exp, 1e3), "mm", "Expeller diameter"],
