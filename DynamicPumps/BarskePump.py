@@ -79,6 +79,8 @@ class BarskePump:
         self.static_head_coefficient_BEP_Barske = None # static head coefficient at BEP from Lobanoff sizing method for
         # head calculations with Barske method, -.
         self.static_head_coefficient_BEP_Lock = None # static head coefficient at BEP from Lock's method, -.
+        # Default analysis method
+        self.default_analysis_method = None # default analysis method, which is the same as the one used for sizing.
 
         # Dictionary to store analysis inputs and results.
         self.analysis_results_design = {"method": None, # Method used for analysis, -
@@ -209,7 +211,8 @@ class BarskePump:
             by Lobanoff et al. will be used. It is preferable to use equation with diffuser efficiency rather than head
             coefficent, beacause it is more quanitfiable quanity. However, other than that, the analysis is the same as
             proposed by Barkse in "The Design of Open Impeller Centrifugal Pumps". If "Lock", procedure from "A Forced
-            Vortex Pump for High Speed, High Pressure, Low Flow Applications" by Lock will be used.
+            Vortex Pump for High Speed, High Pressure, Low Flow Applications" by Lock will be used. This will also set
+             the default analysis method for the impeller.
         :param string widths_sizing_method: Method used for sizing of the pump widths (axial lengths), either
             "Gulich", "Rocketdyne" or "diameter fraction". If "Gulich", impeller outlet width L_2 is calculated from
             equation 7-1a from "Centrifugal Pumps" by Gulich. L_1 is then calculated such that constant meridional
@@ -502,13 +505,14 @@ class BarskePump:
         else:
             self.s_rad_hub = None
 
-        # With all dimensions known, full analysis can be performed to get more data about flow and performance
+        # With all dimensions known, full analysis can be performed to get more data about flow and performance.
+        # At the same time, default analysis method can be set.
         if diameter_sizing_method == "Lobanoff":
-            analysis_method = "Barske"
+            self.default_analysis_method = "Barske"
         else:
-            analysis_method = "Lock"
-        self.analysis_results_design = self.analyse(fluid, mdot, RPM, p_upstream, T_upstream, analysis_method,
-                                                    K_factor, eta_losses, no_prerotation)
+            self.default_analysis_method = "Lock"
+        self.analysis_results_design = self.analyse(fluid, mdot, RPM, p_upstream, T_upstream,
+                                                    self.default_analysis_method, K_factor, eta_losses, no_prerotation)
 
         # Print geometry
         self.print_dimensions()
@@ -725,7 +729,7 @@ class BarskePump:
          """
         return (0.008 * (D_2 / self.inch_to_m) + 0.072) * self.inch_to_m
 
-    def analyse(self, fluid, mdot, RPM, p_upstream, T_upstream, analysis_method, K_factor=None, eta_losses=None,
+    def analyse(self, fluid, mdot, RPM, p_upstream, T_upstream, analysis_method=None, K_factor=None, eta_losses=None,
                 no_prerotation=None):
         """A method to analyze pump's performance for given operating conditions.
 
@@ -736,7 +740,8 @@ class BarskePump:
         :param float or int T_upstream: Upstream temperature, K
         :param string analysis_method: Method used for analysis. It should be either "Barske" or "Lock". If "Barske",
          a constant head coefficient is used to determine pump head. If "Lock", procedure from "A Forced Vortex Pump
-         for High Speed, High Pressure, Low Flow Applications" by Lock will be used.
+         for High Speed, High Pressure, Low Flow Applications" by Lock will be used. If not given, a default analysis
+          method which was used for sizing will be also used for analysis
         :param float or int eta_losses: Fraction of dynamic head lost in the diffuser, -. By default, the same value
          as used for the design when generating geometry with 'size_dimensions'.
         :param float or int K_factor: Factor for prerotation at zero flow as a fraction of inlet tip speed, -. Used for
@@ -750,6 +755,8 @@ class BarskePump:
         :rtype: dict
         """
 
+        # If analysis_method is None, choose default one
+        if analysis_method is None: analysis_method = self.default_analysis_method
         # If eta_losses is None, use the same value as the one used for design of the impeller
         if eta_losses is None: eta_losses = self.eta_losses_design
         # If K_factor is None, use the same value as the one used for design of the impeller
