@@ -969,12 +969,12 @@ class BarskePump:
               "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.\n")
         # Verify if axial velocity at the inlet is within recommended range
         if not (5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m):
-            print(f"Impeller eye diameter v0 is {self.analysis_results_design["v_0"]:.3f} m/s."
+            print(f"Impeller eye diameter v0 is {self.analysis_results_design['v_0']:.3f} m/s."
                   f" It should be between {5*self.feet_to_m:.3f} m/s and {12*self.feet_to_m:.3f} m/s.")
             self.design_checks["eye_velocity"] = False
         # Verify if inner blade velocity is smaller than recommended by Barske
         if self.analysis_results_design["u_1"] > 150 * self.feet_to_m:
-            print(f"Inner blade speeed u1 is {self.analysis_results_design["u_1"]:.3f} m/s."
+            print(f"Inner blade speeed u1 is {self.analysis_results_design['u_1']:.3f} m/s."
                   f" It should be <= {150 * self.feet_to_m:.3f} m/s.")
             self.design_checks["LE_velocity"] = False
         # Verify if diameter ratio is greater than recommended by Barske
