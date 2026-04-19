@@ -34,7 +34,7 @@ class BarskePump:
 
         # Areas
         self.A_1 = None  # flow area at the inlet of the impeller, m^2
-        self.A_2 = None  # flow area at the inlet of the impeller, m^2
+        self.A_2 = None  # flow area at the outlet of the impeller, m^2
         self.A_3 = None # impeller throat diffuser area, m^2
         self.A_4 = None # impeller exit diffuser area, m^2
         self.A_4_over_A_3 = None # diffuser area ratio, -
@@ -69,6 +69,8 @@ class BarskePump:
 
         # Other
         self.n_blades = None # number of blades, -
+        self.V_r_ratio = None # Ratio of outlet to inlet radial (meridional) velocity through the impeller.
+        # Also a ratio of A2 to A1.
         self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/s)
         self.eta_losses_design = None  # fraction of dynamic head lost in the diffuser used for sizing, -.
         self.K_factor_design = None # factor for prerotation at zero flow as a fraction of inlet tip speed used in
@@ -185,7 +187,7 @@ class BarskePump:
 
     def size_dimensions(self, fluid, RPM, dp, mdot, p_upstream, T_upstream, inlet_sizing_method, diameter_sizing_method,
                         widths_sizing_method, outlet_sizing_method, hub_sizing_method, t_hub, t_LE, t_TE, D_inlet,
-                        D_shaft, n_blades = 5, diffuser_area_ratio = 4, diffuser_angle = 8,
+                        D_shaft, V_r_ratio=1, n_blades = 5, diffuser_area_ratio = 4, diffuser_angle = 8,
                         flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1, D_hub_over_D_1 = 1.1, alpha_1 = 90,
                         s_ax_over_D_2 = 0.01, v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07,
                         L_1_over_D_1 = 0.25, r_factor = 0.8, eta_losses = 0.194, K_factor = 0.17,
@@ -230,6 +232,8 @@ class BarskePump:
         :param float or int t_LE: Leading edge (suction side) thickness, m
         :param float or int D_inlet: Inlet pipe diameter, m
         :param float or int D_shaft: Shaft diameter, m
+        :param float or int V_r_ratio: Ratio of outlet to inlet radial (meridional) velocites through the impeller, -.
+            This is also a ratio of A2 to A1. By default, equal to 1.
         :param float or int t_TE: Trailing edge (suction side) thickness, m
         :param int n_blades: Number of blades. By default, 5, which is within a range of 3-6 often mentioned for Barske
             impellers.
@@ -343,6 +347,7 @@ class BarskePump:
         self.no_prerotation_design = no_prerotation # -
         self.A_4_over_A_3 = diffuser_area_ratio # -
         self.D_shaft = D_shaft # m
+        self.V_r_ratio = V_r_ratio # -
 
         # Find outlet diameter that satisfies requirementsa
         # First define a function that calculates impeller's dimensions and H as a function of D_2
@@ -380,7 +385,7 @@ class BarskePump:
                        - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 # Calculate L_1, while taking blade thickness into account
                 self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
-                self.L_1 = self.A_2 / (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
+                self.L_1 = self.A_2 * self.V_r_ratio / (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
                 self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
             elif widths_sizing_method in ("diameter fraction", "Rocketdyne"):
@@ -392,7 +397,7 @@ class BarskePump:
                                / r_factor # m
                 # Calculate L_2, while taking blade thickness into account
                 self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
-                self.L_2 = self.A_1 / (D_2 * np.pi- self.n_blades * self.t_2)  # m
+                self.L_2 = self.A_1 / ((D_2 * np.pi- self.n_blades * self.t_2) * self.V_r_ratio)  # m
                 self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
             else:
                 warnings.simplefilter("error", UserWarning)
@@ -430,8 +435,8 @@ class BarskePump:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
-            return (H, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser, self.L_1, self.L_2,
-                    alpha_0, alpha_2, s_ax, s_rad)
+            return (H, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser,
+                    self.L_1, self.L_2, alpha_0, alpha_2, s_ax, s_rad)
 
         # Now solve the function for D_2 and get all other remaining dimensions. Typical head coefficient for Barske
         # impellers is about 1.4 (Gulich). Bisection is used, so the diameter range is from 1.1x inner diameter to
@@ -567,8 +572,10 @@ class BarskePump:
         H_total_ideal = (2 * u_2**2 - u_1**2) / (2 * self.g)
         # Then calculate total static head
         H_static_ideal = H_total_ideal + (- dummy_1c / 3) * Q**2
-        # Now calculate total head without diffuser losses
-        H_total_wo_diff_loss = dummy_1a - C_h * K_factor * (u_2**2 / self.g) * (self.D_1 / self.D_2) * (1 - (Q / Q_ops))
+        # Now calculate total head without diffuser losses. Lock's method was modified for the case in which
+        # meridional velocity is not constant, hence the term with K coefficient is also multiplied by V_r ratio.
+        H_total_wo_diff_loss = dummy_1a - C_h * K_factor * self.V_r_ratio * (u_2**2 / self.g) * \
+                               (self.D_1 / self.D_2) * (1 - (Q / Q_ops))
         # Now calculate static head without diffuser losses
         H_static_wo_diff_loss = H_total_wo_diff_loss + (- dummy_1c / 3) * Q**2
         # Calculate diffuser losses
