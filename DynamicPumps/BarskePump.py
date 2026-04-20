@@ -90,7 +90,8 @@ class BarskePump:
                                         "RPM": None, # Rotations Per Minute, 1 / minute
                                         "omega": None,  # Angular speed, rad / s
                                         "mdot": None, # Massflow through pump, kg / s
-                                        "dp": None,  # Pressure rise across the pump, Pa
+                                        "dp": None,  # Static pressure rise across the pump, Pa
+                                        "dp_total": None,  # Total pressure rise across the pump, Pa
                                         "Q": None, # Volumetric flow through pump (defined with p_0)
                                         "H_total_real": None, # Real total head of the pump, m
                                         "H_static_real": None,  # Real static head of the pump, m
@@ -118,6 +119,7 @@ class BarskePump:
                                         "p_hub": None, # Pressure at the edge of the impeller hub, Pa
                                         "p_2": None, # Pressure at the impeller outlet, Pa
                                         "p_4": None, # Pressure at the diffuser outlet, Pa
+                                        "p_total_outlet": None,  # Total pressure at the diffuser outlet, Pa
                                         "p_shaft": None, # Pressure at the impeller shaft, Pa
                                         "v_inlet": None,  # Velocity in the inlet pipe, m/s
                                         "v_0": None, # Velocity at the impeller eye, m/s
@@ -740,7 +742,7 @@ class BarskePump:
                 no_prerotation=None):
         """A method to analyze pump's performance for given operating conditions.
 
-        :param Fluid fluid: Object representing fluid used for the sizing of the Barske Pump.
+        :param Fluid fluid: Object representing pumped fluid.
         :param float or int mdot: Massflow through the pump, kg/s
         :param float or int RPM: Design Rotations Per Minute at BEP, 1 / minute
         :param float or int p_upstream: Upstream total (tank/reservoir) pressure, Pa
@@ -784,17 +786,17 @@ class BarskePump:
         p_0 = p_upstream - 0.5 * rho * v_0 ** 2
         # Then calculate u_1, v_1m and v_1ax
         omega = RPM * 2 * np.pi / 60 # rad / s
-        u_1 = omega * self.D_1 / 2
-        v_1ax = 4 * Q / (np.pi * self.D_1**2)
-        v_1m = Q / self.A_1
-        w_1 = np.sqrt(u_1**2 + v_1m**2)
+        u_1 = omega * self.D_1 / 2 # m/s
+        v_1ax = 4 * Q / (np.pi * self.D_1**2) # m/s
+        v_1m = Q / self.A_1 # m/s
+        w_1 = np.sqrt(u_1**2 + v_1m**2) # m/s
         # Calculate u_2
-        u_2 = omega * self.D_2 / 2
+        u_2 = omega * self.D_2 / 2 # m/s
         # Calculate w_2
-        w_2 = Q / self.A_2
+        w_2 = Q / self.A_2 # m/s
         # Calculate v_3 and v_4
-        v_3 = 4 * Q / (np.pi * self.D_3 ** 2)
-        v_4 = 4 * Q / (np.pi * self.D_4 ** 2)
+        v_3 = 4 * Q / (np.pi * self.D_3 ** 2) # m/s
+        v_4 = 4 * Q / (np.pi * self.D_4 ** 2) # m/s
 
         # Calculate paddle power to overcome friction for the impeller
         dummy_1a = 0.6e-6 * rho / self.lb_to_kg * self.feet_to_m**3
@@ -805,8 +807,8 @@ class BarskePump:
         P_f_impeller = dummy_1a * dummy_1b * (dummy_1c * dummy_1d + dummy_1e) * self.HP_to_W # W
         
         # Calculate flow coefficient
-        flow_coefficient_inlet = v_1ax / u_1
-        flow_coefficient_outlet = v_3 / u_2
+        flow_coefficient_inlet = v_1ax / u_1 # -
+        flow_coefficient_outlet = v_3 / u_2 # -
 
         # Calculate impeller ideal heads and coefficients depending on the method chosen
         if analysis_method == "Lock":
@@ -823,84 +825,87 @@ class BarskePump:
 
         # Calculate p_2. To get difference between static head at the inlet and static head at the outlet, dynamic head
         # at the inlet must be added to static head due to forced vortex in the impeller
-        p_2 = p_inlet + functions.get_dP_from_H(fluid, H_s + v_inlet**2 / (2 * self.g), p_inlet, T_upstream)
+        p_2 = p_inlet + functions.get_dP_from_H(fluid, H_s + v_inlet**2 / (2 * self.g), p_inlet, T_upstream) # Pa
         # Calculate p_4.
-        dp = functions.get_dP_from_H(fluid, H_static_real, p_inlet, T_upstream)
-        p_4 = p_inlet + dp
+        dp = functions.get_dP_from_H(fluid, H_static_real, p_inlet, T_upstream) # Pa
+        p_4 = p_inlet + dp # Pa
+        p_total_outlet = p_4 + 0.5 * rho * v_4**2 # Pa
+        dp_total = p_total_outlet - p_upstream # Pa
 
         # Determine forces. First determine momentum force.
-        F_momentum = mdot * v_0
+        F_momentum = mdot * v_0 # N
 
         # Now determine hydraulic axial force. Procedure and nomenclature is based on section 9.2 from 4th edition of
         # "Centrifugal Pumps" by Gulich, tables 9.1, 9.2 and 9.3. First k_0 will be calculated. k is ratio of tangential
         # fluid velocity to circumferential blade velocity. Impeller radius is obtained for convenience.
-        r_2 = self.D_2 / 2
+        r_2 = self.D_2 / 2 # m
         # There is a step in the casing if hub diameter is equal to the impeller diameter. Thickness and radius of that
         # step are t_ax and r_w respectively.
         if self.D_hub == self.D_2:
             # First consider cases when there is no expeller
             if not self.expeller:
                 # If hub does not overlap with that step, t_ax will equal t_hub to maintain constant axial clearance
-                if self.s_ax > self.t_0: t_ax = self.t_0
+                if self.s_ax > self.t_0: t_ax = self.t_0 # m
                 # If hub overlaps with that step, t_ax is taken as equal to axial clearance
-                else: t_ax = self.s_ax
+                else: t_ax = self.s_ax # m
             # Now consider cases when there is expeller
             elif self.expeller:
                 # If hub does not overlap with that step, t_ax can be computed from other dimensions and clearances
-                if self.s_ax > self.t_0: t_ax = self.t_0 + self.h_exp + self.s_ax_exp - self.s_ax
+                if self.s_ax > self.t_0: t_ax = self.t_0 + self.h_exp + self.s_ax_exp - self.s_ax # m
                 # If hub does overlap with that step, t_ax is taken as equal to the axial clearance between plain hub
                 # and casing
-                else: t_ax = self.h_exp + self.s_ax_exp
+                else: t_ax = self.h_exp + self.s_ax_exp # m
             # In call cases, r_w is impeller radius plus hub radial clearance
-            r_w = r_2 + self.s_rad_hub
+            r_w = r_2 + self.s_rad_hub # m
             # k_0 can be now calculated
-            k_0 = 1 / (1 + (r_w / r_2)**2 * np.sqrt((r_w / r_2) + 5 * (t_ax / r_2)))
+            k_0 = 1 / (1 + (r_w / r_2)**2 * np.sqrt((r_w / r_2) + 5 * (t_ax / r_2))) # -
         # There are open sidewall gaps if hub diameter is smaller than impeller diameter. In this case, t_ax is zero
         # and r_w is equal to the radius of the hub.
         elif self.D_hub < self.D_2:
             # Hub ends before diameter, hence r_w is used instead of r_2 in the formula for k_0. It should evaluate to
             # 0.5 in such case.
-            k_0 = 0.5
+            k_0 = 0.5 # -
 
         # If expeller is present calculate k_rs and k_av. The hub possibly may not be equal to impeller diameter,
         # so values of impeller radius and diameter in equations given by Gulich are substituted with hub radius and
         # diameter.
         if self.expeller:
-            r_hub = self.D_hub / 2
+            r_hub = self.D_hub / 2 # m
             k_rs = 1 / (1 + 0.13 * (self.s_ax_exp / (self.s_ax_exp + self.h_exp)) *
-                        np.sqrt(r_hub/(self.h_exp * self.n_exp)))
-            k_av = np.sqrt((self.D_exp / self.D_hub)**(2 - 0.9 * self.D_exp / self.D_hub) * (k_rs**2 - k_0**2) + k_0**2)
+                        np.sqrt(r_hub/(self.h_exp * self.n_exp))) # -
+            k_av = np.sqrt((self.D_exp / self.D_hub)**(2 - 0.9 * self.D_exp / self.D_hub) \
+                           * (k_rs**2 - k_0**2) + k_0**2) # -
         # If it is not present, k_av is just k_0
         elif not self.expeller:
-            k_av = k_0
+            k_av = k_0 # -
 
         # Beyond hub forces are balanced, so hub diameter is used instead of impeller diameter in axial force
         # calculations. First obtain static pressure increase at the hub end assuming it varies linearly. It should vary
         # quadratically, but linear variation is what is assumed in Gulich in T9.3.1. In any case, linear variation
         # gives conservative results.
-        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2) + p_0
-        delta_p_hub = p_hub - p_0
+        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2) + p_0 # Pa
+        delta_p_hub = p_hub - p_0 # Pa
         # Also get blade velocity there
-        u_hub = omega * self.D_hub / 2
+        u_hub = omega * self.D_hub / 2 # m/s
 
         # Hydraulic axial force can be now calculated
         dummy_2a = np.pi / 4 * self.D_hub**2
         dummy_2b = delta_p_hub * (1 - (self.D_shaft / self.D_hub)**2)
         dummy_2c = rho / 4 * (k_av * u_hub * (1 - (self.D_shaft / self.D_hub)**2))**2
         dummy_2d = delta_p_hub / 2 * (1 - (self.D_1 / self.D_hub)**2)**2
-        F_hydraulic = dummy_2a * (dummy_2b - dummy_2c - dummy_2d)
+        F_hydraulic = dummy_2a * (dummy_2b - dummy_2c - dummy_2d) # N
         # Now calculate total axial force
-        F_ax = F_hydraulic - F_momentum
+        F_ax = F_hydraulic - F_momentum # N
 
         # Now calculate radial forces. Procedure is based on Table 9.7 from 4th edition of "Centrifugal Pumps" by
         # Gulich. First get flow at BEP at given RPM and calculte q_star
-        Q_opt = self.A_3 * self.flow_coefficient_BEP * u_2 # m3
-        q_star = Q / Q_opt
+        Q_opt = self.A_3 * self.flow_coefficient_BEP * u_2 # m3/s
+        q_star = Q / Q_opt # -
         # k_R0 is conservatively chosen to be 0.1, while a is 0.18. Both are values given by Gulich.
-        k_R0 = 0.1
-        a = 0.18
+        k_R0 = 0.1 # -
+        a = 0.18 # -
         # Now calculate k_R and radial static force.
-        k_R = k_R0 * (1 + q_star + a * q_star**2)
+        k_R = k_R0 * (1 + q_star + a * q_star**2) # -
         # Calculate total impeller width at the outlet
         if self.D_hub == self.D_2: L_2_total = self.L_2 + self.t_0 # m
         elif self.D_hub < self.D_2: L_2_total = self.L_2 # m
@@ -908,17 +913,17 @@ class BarskePump:
         F_rad_static = k_R * rho * self.g * H_total_real * self.D_2 * L_2_total # N
         # Calcualte dynamic radial force. k_R_dyn is conservatively assumed to be 0.05 which is the value given by
         # Gulich
-        k_R_dyn = 0.05
+        k_R_dyn = 0.05 # -
         F_rad_dynamic = k_R_dyn * rho * self.g * H_total_real * self.D_2 * L_2_total # N
         # Calculate total peak radial force
         F_rad = F_rad_static + F_rad_dynamic # N
 
         # Calculate pressure at the shaft. This time assume quadratic variation and forced vortex
         # (more realistic results).
-        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2)**2 + p_0
-        r_hub = self.D_hub / 2
-        r_shaft = self.D_shaft / 2
-        p_shaft = p_hub - rho / 2 * (u_hub * k_av)**2 * (1 - (r_shaft / r_hub)**2)
+        p_hub = (p_2 - p_0) * (self.D_hub / self.D_2)**2 + p_0 # Pa
+        r_hub = self.D_hub / 2 # m
+        r_shaft = self.D_shaft / 2 # m
+        p_shaft = p_hub - rho / 2 * (u_hub * k_av)**2 * (1 - (r_shaft / r_hub)**2) # Pa
 
         # If expeller is present, calculate power loss due to it. Hub may be smaller than impeller diameter, so again
         # use hub diameter and radius instead of impeller ones.
@@ -929,43 +934,44 @@ class BarskePump:
             dummy_3d = ((self.h_exp + self.s_ax_exp) / r_hub + 0.24)
             dummy_3e = 0.25 * ((self.h_exp + self.s_ax_exp) / r_hub)**0.1
             dummy_3f = 1 - (self.D_exp / self.D_hub)**5
-            P_f_expeller = dummy_3a * dummy_3b * (dummy_3c * dummy_3d + dummy_3e * dummy_3f)
+            P_f_expeller = dummy_3a * dummy_3b * (dummy_3c * dummy_3d + dummy_3e * dummy_3f) # W
         # Otherwise, it is zero.
         else:
-            P_f_expeller = 0
+            P_f_expeller = 0 # W
         # Calculate total frcition power
-        P_f_total = P_f_impeller + P_f_expeller
+        P_f_total = P_f_impeller + P_f_expeller # W
         # Calculate useful pump power
-        P_h_useful = mdot * H_total_real * self.g
+        P_h_useful = mdot * H_total_real * self.g # W
         # Calculate pump power lost to hydraulic losses
-        P_h_losses = mdot * H_loss * self.g
+        P_h_losses = mdot * H_loss * self.g # W
         # Calculate total hydraulic pump power
-        P_h_total = mdot * H_total_ideal * self.g
+        P_h_total = mdot * H_total_ideal * self.g # W
         # Calculate total pump power
-        P_total = P_h_total + P_f_total
+        P_total = P_h_total + P_f_total # -
         # Calculate pump efficiency
-        eta_static = mdot * H_static_real * self.g / P_total
-        eta_total = P_h_useful / P_total
+        eta_static = mdot * H_static_real * self.g / P_total # -
+        eta_total = P_h_useful / P_total # -
         # Calculate outlet temperature
-        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_specific_heat(p_inlet, T_upstream))
+        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_specific_heat(p_inlet, T_upstream)) # K
 
         # Determine torque acting on the impeller
         Torque = P_total / omega # N*m
 
         # Pack results into dictionary and return it
         analysis_results = {"method": analysis_method, "fluid": fluid, "RPM": RPM, "omega": omega, "mdot": mdot,
-                            "dp": dp, "Q": Q, "H_total_real": H_total_real, "H_static_real": H_static_real,
-                            "H_losses": H_loss, "H_total_ideal": H_total_ideal, "H_static_ideal": H_static_ideal,
-                            "flow_coefficient_inlet": flow_coefficient_inlet,
+                            "dp": dp, "dp_total": dp_total, "Q": Q, "H_total_real": H_total_real,
+                            "H_static_real": H_static_real, "H_losses": H_loss, "H_total_ideal": H_total_ideal,
+                            "H_static_ideal": H_static_ideal, "flow_coefficient_inlet": flow_coefficient_inlet,
                             "flow_coefficient_outlet": flow_coefficient_outlet,
                             "static_head_coefficient": head_coefficient_static, "P_h_useful": P_h_useful,
                             "P_h_losses": P_h_losses, "P_h_total": P_h_total, "P_total": P_total,
                             "P_f_impeller": P_f_impeller, "P_f_expeller": P_f_expeller, "P_f_total": P_f_total,
                             "eta_total": eta_total, "eta_static": eta_static, "eta_losses": eta_losses,
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
-                            "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4, "v_inlet": v_inlet,
-                            "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax, "v_1m": v_1m, "w_1": w_1, "u_2": u_2, "w_2": w_2,
-                            "v_3": v_3, "v_4": v_4, "T_4": T_outlet, "F_ax": F_ax, "F_rad": F_rad, "Torque": Torque}
+                            "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4,
+                            "p_total_outlet": p_total_outlet, "v_inlet": v_inlet, "v_0": v_0, "u_1": u_1, "v_1ax": v_1ax,
+                            "v_1m": v_1m, "w_1": w_1, "u_2": u_2, "w_2": w_2, "v_3": v_3, "v_4": v_4, "T_4": T_outlet,
+                            "F_ax": F_ax, "F_rad": F_rad, "Torque": Torque}
         return analysis_results
 
     def verify_design(self):
