@@ -22,8 +22,10 @@ def get_dP_from_H(fluid, H, p_0, T_0):
     # Ensure bracketing of root in case of negative pressure rise
     lower_bound = min(0, 2*dp_estimate)
     upper_bound = max(0, 2*dp_estimate)
-    # Solve for dp
-    dp = toms748(f=residual, a=lower_bound, b=upper_bound)
+    # If H is zero, then dP is also zero
+    if H == 0: dp = 0
+    # Otherwise solve for dp
+    else: dp = toms748(f=residual, a=lower_bound, b=upper_bound)
     return dp
 
 def get_H_from_dp(fluid, pressure_rise, p_0, T_0):
@@ -38,6 +40,8 @@ def get_H_from_dp(fluid, pressure_rise, p_0, T_0):
     :rtype: float
     """
 
-    # Integrate dp / (density * g) from p_0 to p_1 = p_0 + pressure_rise to get head
-    H = integrate.quad(lambda p: 1 / fluid.get_density(p, T_0), p_0, p_0 + pressure_rise)[0] / 9.80665
+    # If pressure rise is 0 Pa, head is also zero
+    if pressure_rise == 0: H = 0
+    # Otherwise integrate dp / (density * g) from p_0 to p_1 = p_0 + pressure_rise to get head
+    else: H = integrate.quad(lambda p: 1 / fluid.get_density(p, T_0), p_0, p_0 + pressure_rise)[0] / 9.80665
     return H
