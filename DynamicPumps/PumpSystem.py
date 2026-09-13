@@ -166,7 +166,8 @@ class PumpSystem:
         # Otherwise return as is
         return RPM_grid, mdot_grid, dp_total, dp_static, H_total, H_static, eta_total, eta_static, P_total, Q
 
-    def plot_pump_map(self, QH_map=False, x_min=None, y_min=None, y_max=None, no_contours=12):
+    def plot_pump_map(self, QH_map=False, x_min=None, y_min=None, y_max=None, no_contours=12,
+                      max_efficiency_point=True):
         """A method to plot pump performance map (either mdot-dP or Q-H) with total efficiency contours.
 
         :param bool QH_map: If True, plots volumetric flow rate Q (L/s) versus static head H (m).
@@ -175,6 +176,8 @@ class PumpSystem:
         :param int or float y_min: Optional lower limit for y-axis.
         :param int or float y_max: Optional higher limit for y-axis.
         :param int no_contours: Number of total efficiency contours. By default, 12.
+        :param bool max_efficiency_point: Boolean whether maximum efficiency point and its value should be shown for
+            each RPM curve. By default, True.
         """
 
         # Extract sweep data
@@ -198,6 +201,7 @@ class PumpSystem:
 
         # Plot RPM curves (truncate at first y <= 0)
         n_RPM = RPM_grid.shape[0]
+        max_efficiency_points = []
         for i in range(n_RPM):
             RPM_value = RPM_grid[i, 0]
             x_i = x[i, :]
@@ -209,7 +213,14 @@ class PumpSystem:
                 x_i = x_i[:cut_idx + 1]
                 y_i = y_i[:cut_idx + 1]
             # Plot RPM curves
-            ax.plot(x_i, y_i, label=f"RPM = {RPM_value:.0f}")
+            RPM_line, = ax.plot(x_i, y_i, label=f"RPM = {RPM_value:.0f}")
+            # Get maximum efficiency point within the operating region
+            if max_efficiency_point:
+                eta_i = np.where((y[i, :] > 0) & np.isfinite(eta_total[i, :]), eta_total[i, :], np.nan)
+                if not np.all(np.isnan(eta_i)):
+                    max_efficiency_idx = np.nanargmax(eta_i)
+                    max_efficiency_points.append([x[i, max_efficiency_idx], y[i, max_efficiency_idx],
+                                                  eta_i[max_efficiency_idx], RPM_line.get_color()])
 
         # Efficiency contours. First mask non-operating region (only where y > 0)
         valid_mask = y > 0
@@ -218,7 +229,13 @@ class PumpSystem:
         levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
         contour = ax.contour(x, y, eta_masked, colors='0.5',  linewidths=0.6, levels=levels)
         # Label contours
-        ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.2f")
+        ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
+
+        # Plot and label maximum efficiency point for each RPM curve
+        for point in max_efficiency_points:
+            ax.plot(point[0], point[1], marker='o', color=point[3])
+            ax.annotate("η = %.3f" % point[2], (point[0], point[1]), xytext=(0, 5), textcoords="offset points",
+                        ha='center', va='bottom', color='0.5', bbox=dict(facecolor='none', edgecolor='none'))
 
         # Axis labels
         ax.set_xlabel(x_label)

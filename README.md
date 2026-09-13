@@ -35,7 +35,7 @@ in the future. `PumpSystem` is stage-oriented: pump stages can be added to its o
 outputs.
 
 All dimensional inputs and outputs use SI units unless a method description states otherwise. Pressure-like inputs
-are in Pa, temperature is in K, mass flow is in kg/s, rotational speed is in rpm and lengths are in m.
+are in Pa, temperature is in K, mass flow is in kg/s, rotational speed is in RPM and lengths are in m.
 
 ## Installation
 
@@ -100,7 +100,7 @@ $$
 n_q = \frac{N\sqrt{Q_{\mathrm{design}}}}{H_{\mathrm{required}}^{3/4}},
 $$
 
-where $N$ is in rpm.
+where $N$ is in RPM.
 
 #### Inlet and passage sizing
 
@@ -223,7 +223,7 @@ list, for example `PumpSystem(stages=[pump])` for one pump or `PumpSystem(stages
 assembly.
 
 `analyse(fluid, mdot, RPM, p_upstream, T_upstream)` calls every stage's `analyse(...)` method in list order. All
-stages receive the same mass flow and rpm. After a stage is evaluated, its `p_total_outlet` becomes the next stage's
+stages receive the same mass flow and RPM. After a stage is evaluated, its `p_total_outlet` becomes the next stage's
 upstream pressure and its `T_4` becomes the next stage's upstream temperature. This is the interface that
 future inducer and full-emission pump classes should implement.
 
@@ -234,13 +234,14 @@ the system result dictionary and a list of individual stage result dictionaries.
 A performance map is generated in this order:
 
 1. Call `sweep_over_RPM_and_mdot(fluid, p_upstream, T_upstream, mdot_range, RPM_range)`.
-2. The method creates an rpm-by-mass-flow mesh and calls `analyse(...)` at every grid point, retaining both system
+2. The method creates an RPM-by-mass-flow mesh and calls `analyse(...)` at every grid point, retaining both system
    and per-stage results in `sweep_results`.
 3. Call `extract_sweep_results(flattened=False)` to obtain grids of pressure rise, head, efficiencies, power and
    inlet volumetric flow. Use `flattened=True` when one-dimensional arrays are more convenient.
-4. Call `plot_pump_map(...)` to plot one curve per rpm and total-efficiency contours. With `QH_map=False`, axes are
+4. Call `plot_pump_map(...)` to plot one curve per RPM and total-efficiency contours. With `QH_map=False`, axes are
    mass flow and static pressure rise; with `QH_map=True`, axes are volumetric flow and static head. Axis limits and
-   the contour-count input are accepted by the plotting interface.
+   the contour-count input are accepted by the plotting interface. By default, the maximum-efficiency point and its
+   efficiency value are shown on each RPM curve; set `max_efficiency_point=False` to hide them.
 
 The current `DynamicPumps/example.py` follows this exact sequence for a single Barske pump. The same sequence applies
 to a multistage list because the map is generated from aggregate system results.
