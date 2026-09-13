@@ -241,7 +241,9 @@ A performance map is generated in this order:
 4. Call `plot_pump_map(...)` to plot one curve per RPM and total-efficiency contours. With `QH_map=False`, axes are
    mass flow and static pressure rise; with `QH_map=True`, axes are volumetric flow and static head. Axis limits and
    the contour-count input are accepted by the plotting interface. By default, the maximum-efficiency point and its
-   efficiency value are shown on each RPM curve; set `max_efficiency_point=False` to hide them.
+   efficiency value are shown on each RPM curve; set `max_efficiency_point=False` to hide them. Set
+   `additional_isolines=True` to connect equal-efficiency points interpolated on the lower-flow side of successively
+   higher RPM curves, starting from the maximum efficiency of each curve except the highest-RPM curve.
 
 The current `DynamicPumps/example.py` follows this exact sequence for a single Barske pump. The same sequence applies
 to a multistage list because the map is generated from aggregate system results.

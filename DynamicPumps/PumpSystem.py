@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.contour import ContourSet
 
 class PumpSystem:
     def __init__(self, stages):
@@ -167,7 +168,7 @@ class PumpSystem:
         return RPM_grid, mdot_grid, dp_total, dp_static, H_total, H_static, eta_total, eta_static, P_total, Q
 
     def plot_pump_map(self, QH_map=False, x_min=None, y_min=None, y_max=None, no_contours=12,
-                      max_efficiency_point=True):
+                      max_efficiency_point=False, additional_isolines=False):
         """A method to plot pump performance map (either mdot-dP or Q-H) with total efficiency contours.
 
         :param bool QH_map: If True, plots volumetric flow rate Q (L/s) versus static head H (m).
@@ -178,6 +179,8 @@ class PumpSystem:
         :param int no_contours: Number of total efficiency contours. By default, 12.
         :param bool max_efficiency_point: Boolean whether maximum efficiency point and its value should be shown for
             each RPM curve. By default, True.
+        :param bool additional_isolines: Boolean whether additional efficiency isolines should be plotted from the
+            maximum efficiency points towards higher RPM curves. By default, False.
         """
 
         # Extract sweep data
@@ -201,6 +204,7 @@ class PumpSystem:
 
         # Plot RPM curves (truncate at first y <= 0)
         n_RPM = RPM_grid.shape[0]
+        max_efficiency_indices = []
         max_efficiency_points = []
         for i in range(n_RPM):
             RPM_value = RPM_grid[i, 0]
@@ -215,12 +219,15 @@ class PumpSystem:
             # Plot RPM curves
             RPM_line, = ax.plot(x_i, y_i, label=f"RPM = {RPM_value:.0f}")
             # Get maximum efficiency point within the operating region
-            if max_efficiency_point:
+            max_efficiency_idx = None
+            if max_efficiency_point or additional_isolines:
                 eta_i = np.where((y[i, :] > 0) & np.isfinite(eta_total[i, :]), eta_total[i, :], np.nan)
                 if not np.all(np.isnan(eta_i)):
                     max_efficiency_idx = np.nanargmax(eta_i)
-                    max_efficiency_points.append([x[i, max_efficiency_idx], y[i, max_efficiency_idx],
-                                                  eta_i[max_efficiency_idx], RPM_line.get_color()])
+            max_efficiency_indices.append(max_efficiency_idx)
+            if max_efficiency_point and max_efficiency_idx is not None:
+                max_efficiency_points.append([x[i, max_efficiency_idx], y[i, max_efficiency_idx],
+                                              eta_i[max_efficiency_idx], RPM_line.get_color()])
 
         # Efficiency contours. First mask non-operating region (only where y > 0)
         valid_mask = y > 0
@@ -230,6 +237,44 @@ class PumpSystem:
         contour = ax.contour(x, y, eta_masked, colors='0.5',  linewidths=0.6, levels=levels)
         # Label contours
         ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
+
+        # Plot additional isolines starting from maximum efficiency points towards higher RPM curves
+        if additional_isolines:
+            RPM_order = np.argsort(RPM_grid[:, 0])
+            for i in range(n_RPM - 1):
+                start_RPM_idx = RPM_order[i]
+                start_efficiency_idx = max_efficiency_indices[start_RPM_idx]
+                if start_efficiency_idx is None:
+                    continue
+                efficiency = eta_total[start_RPM_idx, start_efficiency_idx]
+                isoline_x = [x[start_RPM_idx, start_efficiency_idx]]
+                isoline_y = [y[start_RPM_idx, start_efficiency_idx]]
+                # Find the same efficiency on each higher RPM curve
+                for next_RPM_idx in RPM_order[i + 1:]:
+                    next_max_efficiency_idx = max_efficiency_indices[next_RPM_idx]
+                    if next_max_efficiency_idx is None:
+                        continue
+                    # Search from the maximum efficiency point towards lower flow rates
+                    for j in range(next_max_efficiency_idx, 0, -1):
+                        eta_1 = eta_total[next_RPM_idx, j]
+                        eta_2 = eta_total[next_RPM_idx, j - 1]
+                        if not np.isfinite(eta_1) or not np.isfinite(eta_2):
+                            continue
+                        if min(eta_1, eta_2) <= efficiency <= max(eta_1, eta_2):
+                            if eta_1 == eta_2:
+                                fraction = 0
+                            else:
+                                fraction = (efficiency - eta_1) / (eta_2 - eta_1)
+                            isoline_x.append(x[next_RPM_idx, j] +
+                                             fraction * (x[next_RPM_idx, j - 1] - x[next_RPM_idx, j]))
+                            isoline_y.append(y[next_RPM_idx, j] +
+                                             fraction * (y[next_RPM_idx, j - 1] - y[next_RPM_idx, j]))
+                            break
+                # Connect interpolated points and label the isoline
+                if len(isoline_x) > 1:
+                    isoline = ContourSet(ax, [efficiency], [[np.column_stack((isoline_x, isoline_y))]],
+                                         colors='0.5', linewidths=0.6)
+                    ax.clabel(isoline, inline=True, fontsize=8, fmt="η = %.3f")
 
         # Plot and label maximum efficiency point for each RPM curve
         for point in max_efficiency_points:
