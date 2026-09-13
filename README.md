@@ -143,8 +143,8 @@ $$
 A_i = L_i\left(\pi D_i-n_b t_i\right).
 $$
 
-The inlet and outlet widths are coupled through `V_r_ratio`, and the remaining blade angles, hub dimensions, casing
-clearances and optional expeller geometry are derived after the impeller diameter is known.
+The inlet and outlet widths are coupled through `V_r_ratio`, and the remaining blade angles, hub dimensions and casing
+clearances are derived after the impeller diameter is known.
 
 #### Solving for impeller diameter
 
@@ -189,8 +189,7 @@ from total pressure rise `dp_total` and includes the outlet total pressure `p_to
 
 #### Losses, power, temperature and loads
 
-The model evaluates empirical paddle-friction power for the impeller and, when enabled, friction power for an
-expeller. Its power balance is
+The model evaluates empirical paddle-friction power for the impeller. Its power balance is
 
 $$
 P_{h,\mathrm{useful}}=\dot{m}gH_{\mathrm{total,real}}, \qquad
@@ -198,7 +197,7 @@ P_{h,\mathrm{loss}}=\dot{m}gH_{\mathrm{loss}},
 $$
 
 $$
-P_{\mathrm{total}}=\dot{m}gH_{\mathrm{total,ideal}}+P_{f,\mathrm{impeller}}+P_{f,\mathrm{expeller}}.
+P_{\mathrm{total}}=\dot{m}gH_{\mathrm{total,ideal}}+P_{f,\mathrm{impeller}}.
 $$
 
 Total and static efficiencies divide their respective useful hydraulic powers by `P_total`. Hydraulic and friction
@@ -210,7 +209,7 @@ T_4=T_{\mathrm{upstream}}+
 $$
 
 Torque is `P_total/omega`. Axial load follows the procedure cited from section 9.2 and Tables 9.1-9.3 of Gülich,
-with hub, casing-step and optional expeller effects. Radial load follows the procedure cited from Table 9.7.
+with hub and casing-step effects. Radial load follows the procedure cited from Table 9.7.
 `verify_design()` checks stored geometry against the Barske and Gülich guidelines described in the comments and
 records the pass/fail flags.
 

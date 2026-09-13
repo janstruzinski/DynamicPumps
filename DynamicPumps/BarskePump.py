@@ -42,7 +42,7 @@ class BarskePump:
         # Clearances
         self.s_ax = None # axial clearance, m
         self.s_rad = None  # radial clearance, m
-        self.s_rad_hub = None # radial clearance of the hub or expeller, m
+        self.s_rad_hub = None # radial clearance of the hub, m
 
         # Thicknesses
         self.t_0 = None # impeller hub thickness, m
@@ -61,18 +61,6 @@ class BarskePump:
         self.D_splitter_over_D_1 = None # ratio of D_splitter to D_1, -
         self.t_splitter_1 = None # splitter blade thickness at inlet, m
         self.t_splitter_2 = None # splitter blade thickness at outlet, m
-
-        # Expeller
-        self.expeller = None # boolean whether expeller is used
-        self.D_exp = None # diameter of the expeller, m
-        self.h_exp = None # height of the expeller, m
-        self.t_exp_1 = None # thickness of the expeller blades near the shaft, m
-        self.t_exp_2 = None  # thickness of the expeller blades near the outlet, m
-        self.s_ax_exp = None # axial clearance of the expeller, m
-        self.n_exp = None # number of expeller blades, -
-        self.D_exp_over_D_2 = None # D_exp over D_2, -
-        self.h_exp_over_D_2 = None # h_exp over D_2, -
-        self.s_ax_exp_over_h_exp = None  # s_ax_exp over h_ex, -
 
         # Other
         self.n_blades = None # number of main blades, -
@@ -113,7 +101,6 @@ class BarskePump:
                                         "P_h_total": None,  # Total hydraulic power, W
                                         "P_total": None,  # Total pump power, W
                                         "P_f_impeller": None,  # Power to overcome friction for the impeller, W
-                                        "P_f_expeller": None,  # Power loss to for the expeller, W
                                         "P_f_total": None, # Total friction power loss, W
                                         "eta_total": None, # Pump total efficiency, -
                                         "eta_static": None,  # Pump total efficiency, -
@@ -152,12 +139,8 @@ class BarskePump:
                               "TE_width": None, # Check whether TE width guideline is satisfied
                               "radial_clearance": None, # Check whether radial clearance guideline is satisfied
                               "axial_clearance": None,  # Check whether axial clearance guideline is satisfied
-                              "TE_width_clearance_ratio": None, # Check whether TE width to clearance ratio guideline is
+                              "TE_width_clearance_ratio": None # Check whether TE width to clearance ratio guideline is
                               # satisfied
-                              "expeller_height": None,# Check whether expeller blade heigth guideline is satisfied
-                              "expeller_clearance": None, # Check whether expeller axial clearance guideline is
-                              # satisfied
-                              "expeller_width": None  # Check whether expeller blade width guideline is satisfied
                               }
 
         # Constants
@@ -200,8 +183,7 @@ class BarskePump:
                         flow_coefficient_outlet = 0.8, D_1_over_D_0 = 1.1, D_hub_over_D_1 = 1.1, alpha_1 = 90,
                         s_ax_over_D_2 = 0.01, v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07,
                         L_1_over_D_1 = 0.25, r_factor = 0.8, eta_losses = 0.194, K_factor = 0.17,
-                        no_prerotation = False, D_diffuser_outlet = None, expeller = False, D_exp_over_D_2 = 1,
-                        h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2, s_rad_hub_over_D_2 = 0.01,
+                        no_prerotation = False, D_diffuser_outlet = None, s_rad_hub_over_D_2 = 0.01,
                         splitter_blades = False, D_splitter_over_D_1 = None):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
@@ -283,14 +265,7 @@ class BarskePump:
         :param bool no_prerotation: Boolean that determines where no prerotation should be assumed for impeller head
             calculations when diameter_sizing_method is "Lobanoff", True or False. By default, False, as recommended in
             Lobanoff.
-        :param bool expeller: Boolean whether expeller is used with the impeller, True or False. By default, False.
-        :param float or int D_exp_over_D_2: Diameter of the expeller D_exp over diameter of the impeller D_2.
-            By default, 1.
-        :param float h_exp_over_D_2: Height of the expeller blades h_exp over impeller diameter D_2. By default, 0.02.
-            This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
-        :param float s_ax_exp_over_h_exp: Ratio of expeller axial clearance s_ax_exp to its blade height h_exp.
-            By default, 0.2. This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
-        :param float s_rad_hub_over_D_2: Ratio of hub/expeller radial clearance s_rad_hub to impeller diameter D_2.
+        :param float s_rad_hub_over_D_2: Ratio of hub radial clearance s_rad_hub to impeller diameter D_2.
             By default, 0.01.
         :param bool splitter_blades: Boolean whether one splitter blade is added halfway between each pair of main
             blades. By default, False. Splitter blades contribute to outlet blockage, but not inlet blockage or
@@ -510,40 +485,8 @@ class BarskePump:
             self.D_hub = self.D_2  # m
             self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
 
-        # Size the expeller. If not used, its geometry is None.
-        if not expeller:
-            self.expeller = False
-            self.D_exp = None
-            self.h_exp = None
-            self.t_exp_1 = None
-            self.t_exp_2 = None
-            self.s_ax_exp = None
-            self.n_exp = None
-            self.D_exp_over_D_2 = None
-            self.h_exp_over_D_2 = None
-            self.s_ax_exp_over_h_exp = None
-        # Size the expeller if it is used
-        if expeller:
-            self.expeller = True
-            self.D_exp = D_exp_over_D_2 * self.D_2 # m
-            # If D_exp is greater than D_hub, it will be set to be equal to it.
-            if self.D_exp > self.D_hub:
-                self.D_exp = self.D_hub # m
-                D_exp_over_D_2 = self.D_exp / self.D_2 # -
-                warnings.warn("Expeller diameter is greater than hub diameter."
-                              " To ensure supported geometry, D_exp is set to D_hub.")
-            self.h_exp = h_exp_over_D_2 * self.D_2 # m
-            # Thicknesses are chosen to mach thickness of the blades based on linear extrapolation/ interpolation.
-            self.t_exp_1 = self.t_1 + (self.t_2 - self.t_1) * (self.D_shaft - self.D_1) / (self.D_2 - self.D_1)
-            self.t_exp_2 = self.t_1 + (self.t_2 - self.t_1) * (self.D_exp - self.D_1) / (self.D_2 - self.D_1)
-            self.n_exp = self.n_blades # -
-            self.D_exp_over_D_2 = D_exp_over_D_2 # -
-            self.h_exp_over_D_2 = h_exp_over_D_2 # -
-            self.s_ax_exp = s_ax_exp_over_h_exp * self.h_exp # m
-            self.s_ax_exp_over_h_exp = s_ax_exp_over_h_exp # -
-
-        # Size the gap between hub/expeller and the casing if hub has diameter of the impeller or expeller is used
-        if hub_sizing_method == "outlet diameter" or expeller:
+        # Size the gap between hub and the casing if hub has diameter of the impeller
+        if hub_sizing_method == "outlet diameter":
             self.s_rad_hub = s_rad_hub_over_D_2 * self.D_2 # m
         # Otherwise it is None
         else:
@@ -879,20 +822,11 @@ class BarskePump:
         # There is a step in the casing if hub diameter is equal to the impeller diameter. Thickness and radius of that
         # step are t_ax and r_w respectively.
         if self.D_hub == self.D_2:
-            # First consider cases when there is no expeller
-            if not self.expeller:
-                # If hub does not overlap with that step, t_ax will equal t_hub to maintain constant axial clearance
-                if self.s_ax > self.t_0: t_ax = self.t_0 # m
-                # If hub overlaps with that step, t_ax is taken as equal to axial clearance
-                else: t_ax = self.s_ax # m
-            # Now consider cases when there is expeller
-            elif self.expeller:
-                # If hub does not overlap with that step, t_ax can be computed from other dimensions and clearances
-                if self.s_ax > self.t_0: t_ax = self.t_0 + self.h_exp + self.s_ax_exp - self.s_ax # m
-                # If hub does overlap with that step, t_ax is taken as equal to the axial clearance between plain hub
-                # and casing
-                else: t_ax = self.h_exp + self.s_ax_exp # m
-            # In call cases, r_w is impeller radius plus hub radial clearance
+            # If hub does not overlap with that step, t_ax will equal t_hub to maintain constant axial clearance
+            if self.s_ax > self.t_0: t_ax = self.t_0 # m
+            # If hub overlaps with that step, t_ax is taken as equal to axial clearance
+            else: t_ax = self.s_ax # m
+            # r_w is impeller radius plus hub radial clearance
             r_w = r_2 + self.s_rad_hub # m
             # k_0 can be now calculated
             k_0 = 1 / (1 + (r_w / r_2)**2 * np.sqrt((r_w / r_2) + 5 * (t_ax / r_2))) # -
@@ -903,18 +837,7 @@ class BarskePump:
             # 0.5 in such case.
             k_0 = 0.5 # -
 
-        # If expeller is present calculate k_rs and k_av. The hub possibly may not be equal to impeller diameter,
-        # so values of impeller radius and diameter in equations given by Gulich are substituted with hub radius and
-        # diameter.
-        if self.expeller:
-            r_hub = self.D_hub / 2 # m
-            k_rs = 1 / (1 + 0.13 * (self.s_ax_exp / (self.s_ax_exp + self.h_exp)) *
-                        np.sqrt(r_hub/(self.h_exp * self.n_exp))) # -
-            k_av = np.sqrt((self.D_exp / self.D_hub)**(2 - 0.9 * self.D_exp / self.D_hub) \
-                           * (k_rs**2 - k_0**2) + k_0**2) # -
-        # If it is not present, k_av is just k_0
-        elif not self.expeller:
-            k_av = k_0 # -
+        k_av = k_0 # -
 
         # Beyond hub forces are balanced, so hub diameter is used instead of impeller diameter in axial force
         # calculations. First obtain static pressure increase at the hub end assuming it varies linearly. It should vary
@@ -962,21 +885,8 @@ class BarskePump:
         r_shaft = self.D_shaft / 2 # m
         p_shaft = p_hub - rho / 2 * (u_hub * k_av)**2 * (1 - (r_shaft / r_hub)**2) # Pa
 
-        # If expeller is present, calculate power loss due to it. Hub may be smaller than impeller diameter, so again
-        # use hub diameter and radius instead of impeller ones.
-        if self.expeller:
-            dummy_3a = rho * omega**3 * r_hub**5
-            dummy_3b = 0.1 / (u_hub * r_hub / kinematic_viscosity)**0.2
-            dummy_3c = (self.D_exp / self.D_hub)**4
-            dummy_3d = ((self.h_exp + self.s_ax_exp) / r_hub + 0.24)
-            dummy_3e = 0.25 * ((self.h_exp + self.s_ax_exp) / r_hub)**0.1
-            dummy_3f = 1 - (self.D_exp / self.D_hub)**5
-            P_f_expeller = dummy_3a * dummy_3b * (dummy_3c * dummy_3d + dummy_3e * dummy_3f) # W
-        # Otherwise, it is zero.
-        else:
-            P_f_expeller = 0 # W
-        # Calculate total frcition power
-        P_f_total = P_f_impeller + P_f_expeller # W
+        # Calculate total friction power
+        P_f_total = P_f_impeller # W
         # Calculate useful pump power
         P_h_useful = mdot * H_total_real * self.g # W
         # Calculate pump power lost to hydraulic losses
@@ -1002,7 +912,7 @@ class BarskePump:
                             "flow_coefficient_outlet": flow_coefficient_outlet,
                             "static_head_coefficient": head_coefficient_static, "P_h_useful": P_h_useful,
                             "P_h_losses": P_h_losses, "P_h_total": P_h_total, "P_total": P_total,
-                            "P_f_impeller": P_f_impeller, "P_f_expeller": P_f_expeller, "P_f_total": P_f_total,
+                            "P_f_impeller": P_f_impeller, "P_f_total": P_f_total,
                             "eta_total": eta_total, "eta_static": eta_static, "eta_losses": eta_losses,
                             "T_upstream": T_upstream, "p_upstream": p_upstream, "rho": rho, "p_inlet": p_inlet,
                             "p_0": p_0, "p_shaft": p_shaft, "p_hub": p_hub, "p_2": p_2, "p_4": p_4,
@@ -1014,7 +924,7 @@ class BarskePump:
     def verify_design(self):
         """A method to verify the design of the Barske pump. It will print whether all conditions are satisfied and set
          the condition flags in object properties. Impeller guidelines are from 'The Design of Open Impeller Centrifugal
-          Pumps' by Barske. Expeller guidelines are from "Centrifugal Pumps" (4th edition, section 9.2.7) by Gulich."""
+          Pumps' by Barske."""
         print("\nVeryfying pump geometry. Recommended guidelines were taken from literature and semi-empirical data,\n"
               "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.\n")
         # Verify if axial velocity at the inlet is within recommended range
@@ -1063,23 +973,6 @@ class BarskePump:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
                   f" It should be greater than 3s_ax = {3 * self.s_ax * 1000:.3f} mm.")
             self.design_checks["TE_width_clearance_ratio"] = False
-        # Now verify expeller. First height check.
-        if self.expeller is True:
-            if self.h_exp_over_D_2 < 0.015 or 2 * self.h_exp_over_D_2 > 0.025:
-                self.design_checks["expeller_height"] = False
-                print(f"Ratio of expeller blade height h_exp to expeller diameter D_2 is {self.h_exp_over_D_2:.3f}."
-                      f" It should be between 0.015 and 0.025.")
-            # Now axial clearance checks.
-            if self.s_ax_exp_over_h_exp < 0.1 or self.s_ax_exp_over_h_exp > 0.2:
-                self.design_checks["expeller_clearance"] = False
-                print(f"Ratio of expeller axial clearance s_exp_ax to expeller blade height is {self.s_ax_exp_over_h_exp:.3f}."
-                      f" It should be between 0.1 and 0.2.")
-            # Now width check.
-            if self.t_exp_2 < 2 * self.h_exp:
-                self.design_checks["expeller_width"] = False
-                print(f"Expeller blade thickness t_exp_2 is {self.t_exp_2 * 1000:.3f} mm."
-                      f" It should be above {2 * self.h_exp * 1000:.3f} mm.")
-
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
         # Creat a function for safe handling of None
@@ -1116,7 +1009,7 @@ class BarskePump:
             # Clearances
             ["s_ax", self.s_ax * 1e3, "mm", "Axial clearance"],
             ["s_rad", self.s_rad * 1e3, "mm", "Radial clearance"],
-            ["s_rad", safe(self.s_rad_hub, 1e3), "mm", "Radial clearance of the hub/expeller"],
+            ["s_rad_hub", safe(self.s_rad_hub, 1e3), "mm", "Radial clearance of the hub"],
 
             # Thicknesses
             ["t_0", self.t_0 * 1e3, "mm", "Impeller hub thickness"],
@@ -1131,18 +1024,7 @@ class BarskePump:
 
             # Other
             ["n_blades", self.n_blades, "-", "Number of blades"],
-            ["specific_speed", self.specific_speed, "m, RPM, m^3/s", "Specific speed (EU)"],
-
-            # Expeller
-            ["D_exp", safe(self.D_exp, 1e3), "mm", "Expeller diameter"],
-            ["h_exp", safe(self.h_exp, 1e3), "mm", "Expeller blade height"],
-            ["t_exp_1", safe(self.t_exp_1, 1e3), "mm", "Expeller blade thickness at the shaft"],
-            ["t_exp_2", safe(self.t_exp_2, 1e3), "mm", "Expeller blade thickness at the expeller diameter"],
-            ["s_ax_exp", safe(self.s_ax_exp, 1e3), "mm", "Expeller axial clearance"],
-            ["n_exp", safe(self.n_exp, 1), "-", "Number of expeller blades"],
-            ["D_exp/D_2", safe(self.D_exp_over_D_2, 1e3), "-", "Ratio of D_exp to D_2"],
-            ["h_exp/D_2", safe(self.h_exp_over_D_2, 1e3), "-", "Ratio of h_exp to D_2"],
-            ["s_ax_exp/h_exp", safe(self.s_ax_exp_over_h_exp, 1e3), "-", "Ratio of s_ax_exp to h_exp"]
+            ["specific_speed", self.specific_speed, "m, RPM, m^3/s", "Specific speed (EU)"]
         ]
 
         # Add splitter dimensions when splitter blades are used
@@ -1195,15 +1077,9 @@ class BarskePump:
             r_splitter = self.D_splitter * 1e3 / 2 # mm
             t_splitter_1 = self.t_splitter_1 * 1e3 # mm
             t_splitter_2 = self.t_splitter_2 * 1e3 # mm
-        # If hub has the same diameter as impeller or expeller is used, get their radial clearance
-        if self.expeller or self.D_hub == self.D_2:
+        # If hub has the same diameter as impeller, get its radial clearance
+        if self.D_hub == self.D_2:
             s_hub_rad = self.s_rad_hub * 1e3    # mm
-        # If expeller is present, get the rest of its parameters
-        if self.expeller:
-            D_exp = self.D_exp * 1e3    # mm
-            h_exp = self.h_exp * 1e3    # mm
-            s_ax_exp = self.s_ax_exp * 1e3  # mm
-            r_exp = D_exp / 2 # mm
 
         # First create figure with two subplots - one subplot will be for top view and another for side view
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
@@ -1387,8 +1263,7 @@ class BarskePump:
         shaft_point_0 = np.array([0, 0])
         shaft_point_1 = np.array([r_shaft, 0])
         # Determine length of shaft to plot
-        if not self.expeller: l_shaft = 2 * s_ax
-        else: l_shaft = h_exp + 2 * s_ax_exp
+        l_shaft = 2 * s_ax
         shaft_point_2 = np.array([r_shaft, - l_shaft])
         # Create shaft polygon
         shaft_polygon = np.array([
@@ -1400,7 +1275,7 @@ class BarskePump:
         ax_side.plot(shaft_polygon[:, 0], shaft_polygon[:, 1], label="Impeller shaft")
 
         # Now create pump casing geometry. First consider option if there is no step change in geometry.
-        if (self.alpha_1 != 90 or self.D_hub != self.D_2) and not self.expeller:
+        if self.alpha_1 != 90 or self.D_hub != self.D_2:
             # Points next to the shaft
             casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
             casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
@@ -1430,12 +1305,11 @@ class BarskePump:
                 casing_point_8
             ])
         # Now consider pump geometry if there is a step change in the casing
-        elif self.D_hub == self.D_2 or self.expeller:
+        elif self.D_hub == self.D_2:
             # Points at the shaft
             casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
             # Get spacing between hub and casing
-            if self.expeller: s_ax_hub = h_exp + s_ax_exp
-            else: s_ax_hub = s_ax
+            s_ax_hub = s_ax
             casing_point_1 = np.array([r_shaft * 1.05, -s_ax_hub])
             # Now get radius of the intermediate points
             r_w = r_hub + s_hub_rad
@@ -1469,24 +1343,6 @@ class BarskePump:
 
         # Plot it
         ax_side.plot(casing_polygon[:, 0], casing_polygon[:, 1], label="Pump casing")
-
-        # If expeller is present, plot it now too
-        if self.expeller:
-            # Get points at the bottom edge
-            expeller_point_0 = np.array([r_shaft * 1.05, -h_exp])
-            expeller_point_1 = np.array([r_exp, -h_exp])
-            # At the top edge
-            expeller_point_2 = np.array([r_exp, 0])
-            expeller_point_3 = np.array([r_shaft * 1.05, 0])
-            # Create expeller polygon
-            expeller_polygon = np.array([
-                expeller_point_3,
-                expeller_point_0,
-                expeller_point_1,
-                expeller_point_2
-            ])
-            # Plot it
-            ax_side.plot(expeller_polygon[:, 0], expeller_polygon[:, 1], label="Expeller")
 
         # Set graph options
         ax_side.set_title("Side view")
@@ -1535,7 +1391,6 @@ class BarskePump:
             ["P_h_total", r["P_h_total"] * 1e-3, "kW", "Total hydraulic power"],
             ["P_total", r["P_total"] * 1e-3, "kW", "Total pump power"],
             ["P_f_impeller", r["P_f_impeller"] * 1e-3, "kW", "Impeller friction power"],
-            ["P_f_expeller", r["P_f_expeller"] * 1e-3, "kW", "Expeller friction power"],
             ["P_f_total", r["P_f_total"] * 1e-3, "kW", "Total friction power"],
 
             ["eta_total", r["eta_total"], "-", "Total efficiency"],
