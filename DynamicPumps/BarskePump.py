@@ -139,8 +139,9 @@ class BarskePump:
                               "TE_width": None, # Check whether TE width guideline is satisfied
                               "radial_clearance": None, # Check whether radial clearance guideline is satisfied
                               "axial_clearance": None,  # Check whether axial clearance guideline is satisfied
-                              "TE_width_clearance_ratio": None # Check whether TE width to clearance ratio guideline is
+                              "TE_width_clearance_ratio": None, # Check whether TE width to clearance ratio guideline is
                               # satisfied
+                              "D_3": None # Check whether throat diameter is smaller than TE width
                               }
 
         # Constants
@@ -974,6 +975,12 @@ class BarskePump:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
                   f" It should be greater than 3s_ax = {3 * self.s_ax * 1000:.3f} mm.")
             self.design_checks["TE_width_clearance_ratio"] = False
+        # According to Gulich, throat diameter should be a bit smaller than TE width
+        if self.D_3 > self.L_2:
+            print(f"Throat diameter is {self.D_3 * 1000:.3f} mm."
+                  f" It should be smaller than L_2 = {self.L_2 * 1000:.3f} mm.")
+            self.design_checks["D_3"] = False
+
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
         # Creat a function for safe handling of None
