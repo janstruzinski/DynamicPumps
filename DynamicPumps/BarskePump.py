@@ -899,7 +899,8 @@ class BarskePump:
         eta_static = mdot * H_static_real * self.g / P_total # -
         eta_total = P_h_useful / P_total # -
         # Calculate outlet temperature
-        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot * fluid.get_specific_heat(p_inlet, T_upstream)) # K
+        mdot_dummy = max(mdot, 1e-6)
+        T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot_dummy * fluid.get_specific_heat(p_inlet, T_upstream)) # K
 
         # Determine torque acting on the impeller
         Torque = P_total / omega # N*m
