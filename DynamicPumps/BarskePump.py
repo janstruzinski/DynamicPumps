@@ -400,7 +400,7 @@ class BarskePump:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("outlet_sizing_method must be 'area ratio' or 'outlet diameter'.")
             diffuser_area_ratio = self.A_4 / self.A_3
-            L_diffuser = ((self.D_4 - self.D_3) / 2) / np.tan(self.alpha_diffuser * np.pi / 180) # m
+            L_diffuser = ((self.D_4 - self.D_3) / 2) / np.tan((self.alpha_diffuser/2) * np.pi / 180) # m
 
             # If blade width sizing method is Gulich, first get L_2 and then get L_1
             if widths_sizing_method == "Gulich":
