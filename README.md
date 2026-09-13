@@ -165,6 +165,19 @@ The bracket starts at $1.1D_1$ and extends to twice a diameter estimate based on
 The converged geometry and both Lock- and Barske-compatible design coefficients are stored in the object. Lobanoff
 sizing selects Barske as the default off-design analysis method; Lock sizing selects Lock approach.
 
+#### Manual geometry assignment
+
+`assign_dimensions(...)` can be used instead of `size_dimensions(...)` when the pump geometry is already known. The
+method accepts the physical diameters, widths, clearances, thicknesses and angles, then calculates all stored geometry
+ratios and flow areas. Blade blockage from the main blades and optional splitter blades is included when calculating
+`V_r_ratio`. Splitter dimensions are required only when `splitter_blades=True`, while `s_rad_hub` is required only for
+a full-diameter hub.
+
+The method uses Lock as the default analysis approach. Starting from the user-given `Q_start`, SciPy iteratively finds
+the volumetric flow with the highest static efficiency at the design RPM. The resulting BEP flow, head, efficiency and
+full analysis dictionary are stored in `analysis_results_design`, and the design flow and head coefficients are
+calculated from that operating point.
+
 #### Hydraulic analysis
 
 `analyse(...)` accepts `fluid`, `mdot`, `RPM`, `p_upstream`, `T_upstream`, `analysis_method`, `K_factor`, `eta_losses`

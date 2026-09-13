@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 
 class BarskePump:
     def __init__(self):
-        """A class for sizing and analysis of Barske pump. Barkse pump geometry and analysis at design point can be done
-         by calling 'size_dimensions' mathod. Analysis at different operating conditions can be performed by calling
-          'analyze' method."""
+        """A class for sizing and analysis of Barske pump. Barske pump geometry and analysis at design point can be done
+         by calling 'size_dimensions' method or 'assign_dimensions' method. Analysis at different operating conditions
+         can be performed by calling 'analyse' method."""
 
         # Create all the class parameters to store pump geometry and analysis results
         # Diameters
@@ -509,6 +509,234 @@ class BarskePump:
         # Finally, design can be verified
         self.verify_design()
 
+    def assign_dimensions(self, fluid, RPM, Q_start, p_upstream, T_upstream, D_inlet, D_0, D_1, D_2, D_3, D_4,
+                          D_hub, D_shaft, L_1, L_2, s_ax, s_rad, t_hub, t_LE, t_TE, alpha_0, alpha_1, alpha_2,
+                          n_blades, diffuser_angle, eta_losses=0.194, K_factor=0.17, s_rad_hub=None,
+                          splitter_blades=False, D_splitter=None, t_splitter_1=None, t_splitter_2=None):
+        """A method to manually assign the Barske pump geometry. It updates parameters of the BarskePump object and
+        finds the Best Efficiency Point using Lock's analysis method.
+
+        :param Fluid fluid: Fluid object representing fluid used for the analysis of the Barske Pump.
+        :param float or int RPM: Design Rotations Per Minute at BEP, 1 / minute.
+        :param float or int Q_start: Starting volumetric flow for the BEP solution, m^3 / s.
+        :param float or int p_upstream: Upstream total (tank/reservoir) pressure, Pa.
+        :param float or int T_upstream: Upstream temperature, K.
+        :param float or int D_inlet: Inlet pipe diameter, m.
+        :param float or int D_0: Impeller eye diameter, m.
+        :param float or int D_1: Impeller inlet diameter, m.
+        :param float or int D_2: Impeller outlet diameter, m.
+        :param float or int D_3: Diffuser throat diameter, m.
+        :param float or int D_4: Diffuser outlet diameter, m.
+        :param float or int D_hub: Hub diameter, m.
+        :param float or int D_shaft: Shaft diameter, m.
+        :param float or int L_1: Impeller width (axial length) at the inlet, m.
+        :param float or int L_2: Impeller width at the outlet, m.
+        :param float or int s_ax: Axial clearance, m.
+        :param float or int s_rad: Radial clearance, m.
+        :param float or int t_hub: Hub thickness, m.
+        :param float or int t_LE: Leading edge (suction side) thickness, m.
+        :param float or int t_TE: Trailing edge (suction side) thickness, m.
+        :param float or int alpha_0: Impeller blade forward edge angle wrt. rotation axis, degrees.
+        :param float or int alpha_1: Impeller blade backward edge angle wrt. rotation axis, degrees.
+        :param float or int alpha_2: Sharpening angle of the radial blade wrt. tangent of D_1, degrees.
+        :param int n_blades: Number of main blades.
+        :param float or int diffuser_angle: Full angle of the conical diffuser, degrees.
+        :param float or int eta_losses: Fraction of dynamic head lost in the diffuser, -. By default, 0.194.
+        :param float or int K_factor: Factor for prerotation at zero flow as a fraction of inlet tip speed, -.
+            By default, 0.17.
+        :param float or int s_rad_hub: Radial clearance of the hub, m. By default, None. Required when D_hub is equal
+            to D_2 and ignored otherwise.
+        :param bool splitter_blades: Boolean whether one splitter blade is added halfway between each pair of main
+            blades. By default, False.
+        :param float or int D_splitter: Splitter blade inlet diameter, m. By default, None. Required when
+            splitter_blades is True and ignored otherwise. Must give D_1 < D_splitter < D_2.
+        :param float or int t_splitter_1: Splitter blade thickness at its inlet, m. By default, None. Required when
+            splitter_blades is True and ignored otherwise.
+        :param float or int t_splitter_2: Splitter blade thickness at its outlet, m. By default, None. Required when
+            splitter_blades is True and ignored otherwise.
+        """
+
+        # Assign required geometry
+        self.D_inlet = D_inlet # m
+        self.D_0 = D_0 # m
+        self.D_1 = D_1 # m
+        self.D_2 = D_2 # m
+        self.D_3 = D_3 # m
+        self.D_4 = D_4 # m
+        self.D_hub = D_hub # m
+        self.D_shaft = D_shaft # m
+        self.L_1 = L_1 # m
+        self.L_2 = L_2 # m
+        self.s_ax = s_ax # m
+        self.s_rad = s_rad # m
+        self.t_0 = t_hub # m
+        self.t_1 = t_LE # m
+        self.t_2 = t_TE # m
+        self.alpha_0 = alpha_0 # degrees
+        self.alpha_1 = alpha_1 # degrees
+        self.alpha_2 = alpha_2 # degrees
+        self.n_blades = n_blades
+        self.alpha_diffuser = diffuser_angle # degrees
+
+        # Calculate diffuser geometry and geometric ratios
+        self.A_3 = np.pi * (self.D_3 / 2)**2 # m^2
+        self.A_4 = np.pi * (self.D_4 / 2)**2 # m^2
+        self.A_4_over_A_3 = self.A_4 / self.A_3 # -
+        self.L_diffuser = ((self.D_4 - self.D_3) / 2) \
+                          / np.tan((self.alpha_diffuser / 2) * np.pi / 180) # m
+        self.D_1_over_D_0 = self.D_1 / self.D_0 # -
+        self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
+        self.L_1_over_D_1 = self.L_1 / self.D_1 # -
+
+        # Assign optional hub radial clearance
+        if self.D_hub == self.D_2:
+            if s_rad_hub is None:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("s_rad_hub cannot be None if D_hub is equal to D_2.")
+            self.s_rad_hub = s_rad_hub # m
+        elif self.D_hub < self.D_2:
+            self.s_rad_hub = None
+        else:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("D_hub must be smaller than or equal to D_2.")
+
+        # Assign optional splitter blade geometry
+        self.splitter_blades = splitter_blades
+        if not self.splitter_blades:
+            self.D_splitter = None
+            self.D_splitter_over_D_1 = None
+            self.t_splitter_1 = None
+            self.t_splitter_2 = None
+        else:
+            if D_splitter is None or t_splitter_1 is None or t_splitter_2 is None:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("D_splitter, t_splitter_1 and t_splitter_2 cannot be None if splitter_blades is True.")
+            if not self.D_1 < D_splitter < self.D_2:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("D_splitter must give D_1 < D_splitter < D_2.")
+            self.D_splitter = D_splitter # m
+            self.D_splitter_over_D_1 = self.D_splitter / self.D_1 # -
+            self.t_splitter_1 = t_splitter_1 # m
+            self.t_splitter_2 = t_splitter_2 # m
+
+        # Calculate impeller flow areas including blade blockage and meridional velocity ratio
+        self.A_1 = self.L_1 * (self.D_1 * np.pi - self.n_blades * self.t_1) # m^2
+        outlet_blockage = self.n_blades * self.t_2
+        if self.splitter_blades:
+            outlet_blockage += self.n_blades * self.t_splitter_2
+        self.A_2 = self.L_2 * (self.D_2 * np.pi - outlet_blockage) # m^2
+        self.V_r_ratio = self.A_1 / self.A_2 # -
+
+        # Assign design analysis inputs. Other design properties are obtained after finding BEP.
+        self.eta_losses_design = eta_losses # -
+        self.K_factor_design = K_factor # -
+        self.no_prerotation_design = None
+        self.default_analysis_method = "Lock"
+
+        if Q_start <= 0:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("Q_start must be greater than zero.")
+
+        # It is desirable to find Best Efficiency Point (BEP) to determine stage coefficients at design point.
+        # Calculate quantities which remain constant while searching for BEP
+        rho = fluid.get_density(p_upstream, T_upstream) # kg/m^3
+        kinematic_viscosity = fluid.get_kinematic_viscosity(p_upstream, T_upstream) # m^2 / s
+        omega = RPM * 2 * np.pi / 60 # rad / s
+        u_1 = omega * self.D_1 / 2 # m/s
+        u_2 = omega * self.D_2 / 2 # m/s
+        P_f_impeller = self.__calculate_friction_power(rho, kinematic_viscosity, RPM) # W
+
+        # Define function that calculates static efficiency for iterative BEP search
+        def get_static_efficiency(Q):
+            v_inlet = 4 * Q / (np.pi * self.D_inlet**2) # m/s
+            p_inlet = p_upstream - 0.5 * rho * v_inlet**2 # Pa
+            H_static_real, _, _, H_total_ideal, _, _, _, _ = \
+                self.__analysis_Lock(u_2, u_1, Q, fluid, p_inlet, T_upstream, self.eta_losses_design,
+                                     self.K_factor_design)
+            mdot = rho * Q # kg/s
+            P_total = mdot * H_total_ideal * self.g + P_f_impeller # W
+            eta_static = mdot * H_static_real * self.g / P_total # -
+            return eta_static
+
+        # Starting from the user-given estimate, find an upper bound of the columetric flow which encloses the
+        # efficiency maximum. This will allow to use bracketing scheme for finding BEP volumetric flow later on.
+        Q_upper = Q_start # m^3 / s
+        eta_upper = get_static_efficiency(Q_upper)
+        # In case Q_start is beyond head breakdown, halve it until positive efficiency is reached
+        for i in range(100):
+            if eta_upper > 0:
+                break
+            Q_upper /= 2
+            eta_upper = get_static_efficiency(Q_upper)
+        else:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("Could not find positive static efficiency starting from Q_start.")
+        # In case Q_upper is below BEP volumetric flow value, double Q_upper until it is above.
+        # First check if efficiency at halved flow is higher.
+        eta_lower = get_static_efficiency(Q_upper / 2)
+        # If it is smaller or equal, it means Q_upper must be increased.
+        if eta_lower <= eta_upper:
+            # Double the upper flow until efficiency stops increasing, placing the maximum inside the bracket
+            for i in range(100):
+                Q_trial = 2 * Q_upper # m^3 / s
+                eta_trial = get_static_efficiency(Q_trial)
+                Q_upper = Q_trial
+                if eta_trial <= eta_upper:
+                    break
+                eta_upper = eta_trial
+            else:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("Could not bracket the maximum static efficiency.")
+
+        # Now the BEP flow should be somewhere between 0 and Q_upper.
+        # Bracketing scheme can be used to efficiently find the exact value.
+        solution = opt.minimize_scalar(fun=lambda Q: -get_static_efficiency(Q), bounds=(0, Q_upper), method="bounded",
+                                       options={"xatol": max(Q_upper * 1e-8, 1e-12)})
+        if not solution.success:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("BEP volumetric flow solution did not converge.")
+        Q_design = solution.x # m^3 / s
+
+        # Calculate design coefficients and perform full analysis at BEP
+        v_inlet = 4 * Q_design / (np.pi * self.D_inlet**2) # m/s
+        p_inlet = p_upstream - 0.5 * rho * v_inlet**2 # Pa
+        Lock_results = self.__analysis_Lock(u_2, u_1, Q_design, fluid, p_inlet, T_upstream,
+                                            self.eta_losses_design, self.K_factor_design)
+        self.flow_coefficient_BEP = 4 * Q_design / (np.pi * self.D_3**2 * u_2) # -
+        self.static_head_coefficient_BEP_Barske = self.__analysis_Lobanoff(u_1, u_2, Q_design)[2]
+        self.static_head_coefficient_BEP_Lock = Lock_results[5]
+        mdot_design = rho * Q_design # kg/s
+        self.analysis_results_design = self.analyse(fluid, mdot_design, RPM, p_upstream, T_upstream,
+                                                    self.default_analysis_method, K_factor, eta_losses)
+        H_design = self.analysis_results_design["H_static_real"] # m
+        self.specific_speed = RPM * np.sqrt(Q_design) / (H_design**0.75)
+
+        # Print geometry
+        self.print_dimensions()
+        # Print analysis results
+        self.print_analysis_results(self.analysis_results_design)
+        # Finally, design can be verified
+        self.verify_design()
+
+    def __calculate_friction_power(self, rho, kinematic_viscosity, RPM):
+        """A method to calculate paddle power required to overcome friction for the impeller.
+
+        :param float or int rho: Fluid density, kg / m^3.
+        :param float or int kinematic_viscosity: Fluid kinematic viscosity, m^2 / s.
+        :param float or int RPM: Rotations Per Minute, 1 / minute.
+
+        :return: Paddle power required to overcome friction for the impeller, W.
+        :rtype: float
+        """
+
+        dummy_1a = 0.6e-6 * rho / self.lb_to_kg * self.feet_to_m**3
+        dummy_1b = (kinematic_viscosity / self.feet_to_m**2)**0.2 * (RPM / 1000)**2.8
+        dummy_1c = np.sin(self.alpha_0 * np.pi / 180)**(-1) + np.sin(self.alpha_1 * np.pi / 180)**(-1)
+        dummy_1d = (self.D_2 / self.inch_to_m)**4.6
+        dummy_1e = 9.2 * (self.D_1 / self.inch_to_m)**3.6 * self.L_1 / self.inch_to_m
+        P_f_impeller = dummy_1a * dummy_1b * (dummy_1c * dummy_1d + dummy_1e) * self.HP_to_W # W
+        return P_f_impeller
+
     def __analysis_Lock(self, u_2, u_1, Q, fluid, p_inlet, T_inlet, eta_losses, K_factor):
         """A method to analyse the pump using Lock's method presented in 'A Forced
             Vortex Pump for High Speed, High Pressure, Low Flow Applications'.
@@ -780,12 +1008,7 @@ class BarskePump:
         v_4 = 4 * Q / (np.pi * self.D_4 ** 2) # m/s
 
         # Calculate paddle power to overcome friction for the impeller
-        dummy_1a = 0.6e-6 * rho / self.lb_to_kg * self.feet_to_m**3
-        dummy_1b = (kinematic_viscosity  / self.feet_to_m**2)**0.2 * (RPM / 1000)**2.8
-        dummy_1c = np.sin(self.alpha_0 * np.pi / 180)**(-1) + np.sin(self.alpha_1 * np.pi / 180)**(-1)
-        dummy_1d = (self.D_2 / self.inch_to_m)**4.6
-        dummy_1e = 9.2 * (self.D_1 / self.inch_to_m)**3.6 * self.L_1 / self.inch_to_m
-        P_f_impeller = dummy_1a * dummy_1b * (dummy_1c * dummy_1d + dummy_1e) * self.HP_to_W # W
+        P_f_impeller = self.__calculate_friction_power(rho, kinematic_viscosity, RPM) # W
         
         # Calculate flow coefficient
         flow_coefficient_inlet = v_1ax / u_1 # -
