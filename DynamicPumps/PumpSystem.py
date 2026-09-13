@@ -216,7 +216,7 @@ class PumpSystem:
         eta_masked = np.where(valid_mask, eta_total, np.nan)
         # Create contour plot
         levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
-        contour = ax.contour(x, y, eta_total, colors='0.5',  linewidths=0.6, levels=levels)
+        contour = ax.contour(x, y, eta_masked, colors='0.5',  linewidths=0.6, levels=levels)
         # Label contours
         ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.2f")
 
