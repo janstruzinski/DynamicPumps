@@ -55,6 +55,13 @@ class BarskePump:
         self.alpha_2 = None # sharpening angle of the radial blade wrt. tangent of D_1, degrees
         self.alpha_diffuser = None # diffuser full angle, degrees
 
+        # Splitter blades
+        self.splitter_blades = None # boolean whether splitter blades are used
+        self.D_splitter = None # splitter blade inlet diameter, m
+        self.D_splitter_over_D_1 = None # ratio of D_splitter to D_1, -
+        self.t_splitter_1 = None # splitter blade thickness at inlet, m
+        self.t_splitter_2 = None # splitter blade thickness at outlet, m
+
         # Expeller
         self.expeller = None # boolean whether expeller is used
         self.D_exp = None # diameter of the expeller, m
@@ -68,7 +75,7 @@ class BarskePump:
         self.s_ax_exp_over_h_exp = None  # s_ax_exp over h_ex, -
 
         # Other
-        self.n_blades = None # number of blades, -
+        self.n_blades = None # number of main blades, -
         self.V_r_ratio = None # Ratio of outlet to inlet radial (meridional) velocity through the impeller.
         # Also a ratio of A2 to A1.
         self.specific_speed = None # specific speed of the pump at Best Efficiency Point, EU units (m, RPM, m^3/s)
@@ -194,7 +201,8 @@ class BarskePump:
                         s_ax_over_D_2 = 0.01, v_0 = 3.6576, u_1 = 45.72, flow_coefficient_inlet = 0.07,
                         L_1_over_D_1 = 0.25, r_factor = 0.8, eta_losses = 0.194, K_factor = 0.17,
                         no_prerotation = False, D_diffuser_outlet = None, expeller = False, D_exp_over_D_2 = 1,
-                        h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2, s_rad_hub_over_D_2 = 0.01):
+                        h_exp_over_D_2 = 0.02, s_ax_exp_over_h_exp = 0.2, s_rad_hub_over_D_2 = 0.01,
+                        splitter_blades = False, D_splitter_over_D_1 = None):
         """A method to size the Barske pump. It updates parameters of the BarskePump object.
 
         :param Fluid fluid: Fluid object representing fluid used for the sizing of the Barske Pump.
@@ -237,7 +245,7 @@ class BarskePump:
         :param float or int V_r_ratio: Ratio of outlet to inlet radial (meridional) velocites through the impeller, -.
             This is also a ratio of A2 to A1. By default, equal to 1.
         :param float or int t_TE: Trailing edge (suction side) thickness, m
-        :param int n_blades: Number of blades. By default, 5, which is within a range of 3-6 often mentioned for Barske
+        :param int n_blades: Number of main blades. By default, 5, which is within a range of 3-6 often mentioned for Barske
             impellers.
         :param float or int diffuser_area_ratio: Area ratio of the conical diffuser. Must be greater than 1.
         :param float or int diffuser_angle: Full angle of the conical diffuser in degrees. By default, 8 degrees, which
@@ -284,6 +292,13 @@ class BarskePump:
             By default, 0.2. This is a recommended value from "Centrifugal Pumps" by Gulich (section 9.2.7, 4th edition).
         :param float s_rad_hub_over_D_2: Ratio of hub/expeller radial clearance s_rad_hub to impeller diameter D_2.
             By default, 0.01.
+        :param bool splitter_blades: Boolean whether one splitter blade is added halfway between each pair of main
+            blades. By default, False. Splitter blades contribute to outlet blockage, but not inlet blockage or
+            Lock's blade spacing to length ratio.
+        :param float or int D_splitter_over_D_1: Ratio of splitter blade inlet diameter D_splitter to D_1.
+            By default, None. Required when splitter_blades is True and ignored otherwise. Must give
+            D_1 < D_splitter < D_2. Splitter thickness is linearly interpolated from the main blade at D_splitter
+            and equals t_TE at D_2.
         """
         # Fist get fluid density
         rho = fluid.get_density(p_upstream, T_upstream) # kg/s
@@ -302,6 +317,12 @@ class BarskePump:
         # Calculate specific speed and assign number of blades
         self.specific_speed = RPM * np.sqrt(Q_design) / (H_required**0.75)
         self.n_blades = n_blades
+        self.splitter_blades = splitter_blades
+        # Splitter blades only contribute to the blade count at the impeller outlet
+        n_blades_outlet = self.n_blades * (2 if self.splitter_blades else 1)
+        if self.splitter_blades and D_splitter_over_D_1 is None:
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("D_splitter_over_D_1 cannot be None if splitter_blades is True.")
 
         # Calculate angular speed of rotation
         omega = RPM * 2 * np.pi / 60 # rad / s
@@ -386,7 +407,7 @@ class BarskePump:
                 self.L_2 = (0.02 + 0.5 * (self.specific_speed/100) - 0.03 * (self.specific_speed/100)**2
                        - 0.04 * (self.specific_speed/100)**3) * D_2 # m
                 # Calculate L_1, while taking blade thickness into account
-                self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
+                self.A_2 = D_2 * self.L_2 * np.pi - n_blades_outlet * self.L_2 * self.t_2 # m^2
                 self.L_1 = self.A_2 * self.V_r_ratio / (self.D_1 * np.pi - self.n_blades * self.t_1)  # m
                 self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
             # If it is Barske or Rocketdyne method, first get L_1 and then get L_2
@@ -399,8 +420,8 @@ class BarskePump:
                                / r_factor # m
                 # Calculate L_2, while taking blade thickness into account
                 self.A_1 = self.D_1 * self.L_1 * np.pi - self.n_blades * self.L_1 * self.t_1 # m^2
-                self.L_2 = self.A_1 / ((D_2 * np.pi- self.n_blades * self.t_2) * self.V_r_ratio)  # m
-                self.A_2 = D_2 * self.L_2 * np.pi - self.n_blades * self.L_2 * self.t_2 # m^2
+                self.L_2 = self.A_1 / ((D_2 * np.pi - n_blades_outlet * self.t_2) * self.V_r_ratio)  # m
+                self.A_2 = D_2 * self.L_2 * np.pi - n_blades_outlet * self.L_2 * self.t_2 # m^2
             else:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
@@ -448,6 +469,22 @@ class BarskePump:
         # Now get the remaining results
         (H_design, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, self.A_4_over_A_3, self.L_diffuser,
          self.L_1, self.L_2, self.alpha_0, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+
+        # Size the splitter blades after the outlet diameter has converged. If not used, their geometry is None.
+        if not self.splitter_blades:
+            self.D_splitter = None
+            self.D_splitter_over_D_1 = None
+            self.t_splitter_1 = None
+            self.t_splitter_2 = None
+        else:
+            self.D_splitter = D_splitter_over_D_1 * self.D_1 # m
+            if not self.D_1 < self.D_splitter < self.D_2:
+                warnings.simplefilter("error", UserWarning)
+                warnings.warn("D_splitter_over_D_1 must give D_1 < D_splitter < D_2.")
+            self.D_splitter_over_D_1 = D_splitter_over_D_1 # -
+            self.t_splitter_1 = self.t_1 + (self.t_2 - self.t_1) * (self.D_splitter - self.D_1) \
+                                / (self.D_2 - self.D_1) # m
+            self.t_splitter_2 = self.t_2 # m
 
         # Calculate ratio of L_1 to D_1
         self.L_1_over_D_1 = self.L_1 / self.D_1
@@ -554,7 +591,7 @@ class BarskePump:
         """
 
         # First find h_0 and C_h factors from digitalized Figure 10a and Figure 10b from Lock. To do so, ratio of
-        # impeller radii and blade spacing to length ratio need to be found.
+        # impeller radii and blade spacing to length ratio need to be found. Only main blades are counted here.
         r_ratio = self.D_1 / self.D_2
         blade_spacing_length_ratio = (self.D_1 * np.pi / self.n_blades) / ((self.D_2 - self.D_1) / 2)
         # Use interpolators created during object construction
@@ -1003,7 +1040,8 @@ class BarskePump:
             print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000:.3f} mm."
                   f" It should be above or equal {L_1_recommended * 1000:.3f} mm.")
             self.design_checks["LE_width"] = False
-        L_2_recommended = self.A_1 / (self.D_2 * np.pi - self.n_blades * self.t_2)
+        n_blades_outlet = self.n_blades * (2 if self.splitter_blades else 1)
+        L_2_recommended = self.A_1 / (self.D_2 * np.pi - n_blades_outlet * self.t_2)
         if self.L_2 < L_2_recommended:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
                   f" It should be above or equal {L_2_recommended * 1000:.3f} mm.")
@@ -1107,6 +1145,15 @@ class BarskePump:
             ["s_ax_exp/h_exp", safe(self.s_ax_exp_over_h_exp, 1e3), "-", "Ratio of s_ax_exp to h_exp"]
         ]
 
+        # Add splitter dimensions when splitter blades are used
+        if self.splitter_blades:
+            rows.extend([
+                ["D_splitter", self.D_splitter * 1e3, "mm", "Splitter blade inlet diameter"],
+                ["D_splitter/D_1", self.D_splitter_over_D_1, "-", "Ratio of D_splitter to D_1"],
+                ["t_splitter_1", self.t_splitter_1 * 1e3, "mm", "Splitter blade thickness at splitters' inlet"],
+                ["t_splitter_2", self.t_splitter_2 * 1e3, "mm", "Splitter blade thickness at outlet"]
+            ])
+
         # Print table
         print("\n GEOMETRY OF THE PUMP:")
         print(tabulate(
@@ -1143,6 +1190,11 @@ class BarskePump:
         r_hub = D_hub / 2 # mm
         r_shaft = D_shaft / 2
         r_volute = (D2 + 2 * s_rad) / 2 # mm
+        # If splitter blades are present, get their radius and thicknesses
+        if self.splitter_blades:
+            r_splitter = self.D_splitter * 1e3 / 2 # mm
+            t_splitter_1 = self.t_splitter_1 * 1e3 # mm
+            t_splitter_2 = self.t_splitter_2 * 1e3 # mm
         # If hub has the same diameter as impeller or expeller is used, get their radial clearance
         if self.expeller or self.D_hub == self.D_2:
             s_hub_rad = self.s_rad_hub * 1e3    # mm
@@ -1182,6 +1234,15 @@ class BarskePump:
             blade_outer_point_2,
             blade_inner_point_1
         ])
+        # Splitter leading edges are straight and tangent to D_splitter, without sharpening
+        if self.splitter_blades:
+            splitter_polygon = np.array([
+                [r_splitter, -t_splitter_1 / 2],
+                [r_splitter, t_splitter_1 / 2],
+                [r2, t_splitter_2 / 2],
+                [r2, -t_splitter_2 / 2],
+                [r_splitter, -t_splitter_1 / 2]
+            ])
         # Create blade rotation function to get coordinates when blade geometry is rotated by given angle
         def rotate_points(points, angle):
             rotation_matrix = np.array([
@@ -1206,6 +1267,16 @@ class BarskePump:
                 ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1], label="Impeller blades")
             else:
                 ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1])
+
+        # Plot one splitter blade halfway between each pair of main blades
+        if self.splitter_blades:
+            for i in range(self.n_blades):
+                angle = rotation_offset + (i + 0.5) * blade_pitch_angle
+                rotated_splitter = rotate_points(splitter_polygon, angle)
+                if i == 0:
+                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1], label="Splitter blades")
+                else:
+                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1])
 
         # Create diffuser geometry
         x0 = -r2
@@ -1281,6 +1352,21 @@ class BarskePump:
 
         # Plot it
         ax_side.plot(blade_side_polygon[:, 0], blade_side_polygon[:, 1], label="Impeller blade")
+
+        # Trim the main blade side profile at D_splitter to give the splitter a straight leading edge
+        if self.splitter_blades:
+            splitter_side_points = []
+            for point_1, point_2 in zip(blade_side_polygon[:-1], blade_side_polygon[1:]):
+                if point_1[0] >= r_splitter:
+                    splitter_side_points.append(point_1)
+                # Interpolate where a profile edge crosses the splitter inlet radius
+                if (point_1[0] < r_splitter) != (point_2[0] < r_splitter):
+                    fraction = (r_splitter - point_1[0]) / (point_2[0] - point_1[0])
+                    splitter_side_points.append(point_1 + fraction * (point_2 - point_1))
+            splitter_side_points.append(splitter_side_points[0])
+            splitter_side_polygon = np.array(splitter_side_points)
+            ax_side.plot(splitter_side_polygon[:, 0], splitter_side_polygon[:, 1],
+                         label="Splitter blade", linestyle="--")
 
         # Create impeller hub geometry
         hub_point_0 = np.array([0, 0])
