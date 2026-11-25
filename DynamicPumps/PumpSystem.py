@@ -168,7 +168,7 @@ class PumpSystem:
         return RPM_grid, mdot_grid, dp_total, dp_static, H_total, H_static, eta_total, eta_static, P_total, Q
 
     def plot_pump_map(self, QH_map=False, x_min=None, y_min=None, y_max=None, no_contours=12,
-                      max_efficiency_point=False, additional_isolines=False):
+                      max_efficiency_point=False, additional_isolines=False, shaft_power=False):
         """A method to plot pump performance map (either mdot-dP or Q-H) with total efficiency contours.
 
         :param bool QH_map: If True, plots volumetric flow rate Q (L/s) versus static head H (m).
@@ -181,6 +181,8 @@ class PumpSystem:
             each RPM curve. By default, True.
         :param bool additional_isolines: Boolean whether additional efficiency isolines should be plotted from the
             maximum efficiency points towards higher RPM curves. By default, False.
+        :param bool shaft_power: If True, plots the summed stage shaft power in kW on the right axis.
+            By default, False.
         """
 
         # Extract sweep data
@@ -200,24 +202,28 @@ class PumpSystem:
             y_label = "Static pressure rise [bar]"
 
         # Create figure
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(layout="constrained")
+        power_ax = ax.twinx() if shaft_power else None
 
         # Plot RPM curves (truncate at first y <= 0)
         n_RPM = RPM_grid.shape[0]
+        RPM_lines = []
         max_efficiency_indices = []
         max_efficiency_points = []
         for i in range(n_RPM):
-            RPM_value = RPM_grid[i, 0]
+            # Use decimal notation and keep fractional RPM values in the legend.
+            RPM_value = np.format_float_positional(RPM_grid[i, 0], trim="-")
             x_i = x[i, :]
             y_i = y[i, :]
-            # Find first index where y <= 0
-            invalid_idx = np.where(y_i <= 0)[0]
-            if invalid_idx.size > 0:
-                cut_idx = invalid_idx[0]
-                x_i = x_i[:cut_idx + 1]
-                y_i = y_i[:cut_idx + 1]
-            # Plot RPM curves
-            RPM_line, = ax.plot(x_i, y_i, label=f"RPM = {RPM_value:.0f}")
+            # Stop both curves at the first non-positive pressure or head sample, including that sample.
+            invalid_idx = np.flatnonzero(y_i <= 0)
+            end = invalid_idx[0] + 1 if invalid_idx.size else y_i.size
+            x_i = x_i[:end]
+            RPM_line, = ax.plot(x_i, y_i[:end], linestyle="-", label=f"{RPM_value} RPM")
+            RPM_lines.append(RPM_line)  # Use the solid curve as the legend handle.
+            if power_ax is not None:
+                # Convert summed stage power from W to kW and reuse the solid curve's color.
+                power_ax.plot(x_i, P_total[i, :end] * 1e-3, color=RPM_line.get_color(), linestyle="--")
             # Get maximum efficiency point within the operating region
             max_efficiency_idx = None
             if max_efficiency_point or additional_isolines:
@@ -229,14 +235,12 @@ class PumpSystem:
                 max_efficiency_points.append([x[i, max_efficiency_idx], y[i, max_efficiency_idx],
                                               eta_i[max_efficiency_idx], RPM_line.get_color()])
 
-        # Efficiency contours. First mask non-operating region (only where y > 0)
-        valid_mask = y > 0
-        eta_masked = np.where(valid_mask, eta_total, np.nan)
-        # Create contour plot
-        levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
-        contour = ax.contour(x, y, eta_masked, colors='0.5',  linewidths=0.6, levels=levels)
-        # Label contours
-        ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
+        # Efficiency contours need at least two speeds and two flow samples.
+        if min(y.shape) >= 2:
+            eta_masked = np.where(y > 0, eta_total, np.nan)
+            levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
+            contour = ax.contour(x, y, eta_masked, colors='0.5', linewidths=0.6, levels=levels)
+            ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
 
         # Plot additional isolines starting from maximum efficiency points towards higher RPM curves
         if additional_isolines:
@@ -285,6 +289,8 @@ class PumpSystem:
         # Axis labels
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
+        if power_ax is not None:
+            power_ax.set_ylabel("Shaft power [kW]")
         ax.set_title("Pump Map")
         # Grid
         ax.grid(True, which='major')
@@ -299,8 +305,5 @@ class PumpSystem:
             ax.set_ylim(bottom=0)
         if y_max is not None:
             ax.set_ylim(top=y_max)
-        # Legend
-        ax.legend()
-        # SHow plot
-        plt.tight_layout()
+        fig.legend(handles=RPM_lines, loc="outside lower center", ncols=min(n_RPM, 4))
         plt.show()
