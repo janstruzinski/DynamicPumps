@@ -14,7 +14,8 @@ pump.size_dimensions(fluid=HTP, RPM=3e4, dp=80e5, mdot=1.5, p_upstream=3e5, T_up
                            hub_sizing_method="diameter fraction", t_hub=3e-3, t_LE=4e-3, t_TE=2e-3, D_inlet=19.05e-3,
                            D_shaft=15e-3, D_hub_over_D_1=1, eta_losses=0.2, diffuser_angle=10,
                            D_diffuser_outlet=19.05e-3, L_1_over_D_1=0.4)
-pump.plot_geometry()
+pump.plot_geometry_2D()
+pump.plot_geometry_3D()
 
 
 # Create PumpSystem object and plot pump performance map

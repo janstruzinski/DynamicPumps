@@ -5,6 +5,7 @@ import scipy.optimize as opt
 import scipy.interpolate as intrp
 from tabulate import tabulate
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 
 class BarskePump:
@@ -1276,44 +1277,19 @@ class BarskePump:
             floatfmt=".2f"
         ))
 
-    def plot_geometry(self):
-        """A method to plot geometry of the pump"""
-        # Convert pump dimensions from meters to millimeters and from deg to rad
-        D0 = self.D_0 * 1e3 # mm
-        D1 = self.D_1 * 1e3 # mm
-        D2 = self.D_2 * 1e3 # mm
-        D3 = self.D_3 * 1e3 # mm
-        D4 = self.D_4 * 1e3 # mm
-        D_hub = self.D_hub * 1e3 # mm
-        D_shaft = self.D_shaft * 1e3 # mm
+    def __get_blade_plot_profiles(self):
+        """Calculate the top and side blade profiles for geometry plots."""
+        # Convert the blade dimensions to millimeters and angles to radians
+        r1 = self.D_1 * 1e3 / 2 # mm
+        r2 = self.D_2 * 1e3 / 2 # mm
+        r_hub = self.D_hub * 1e3 / 2 # mm
         L1 = self.L_1 * 1e3 # mm
         L2 = self.L_2 * 1e3 # mm
-        L_diffuser = self.L_diffuser * 1e3 # mm
         t0 = self.t_0 * 1e3 # mm
         t1 = self.t_1 * 1e3 # mm
         t2 = self.t_2 * 1e3 # mm
-        s_ax = self.s_ax * 1e3 # mm
-        s_rad = self.s_rad * 1e3 # mm
-        alpha2 = np.deg2rad(self.alpha_2) # rad
         alpha1 = np.deg2rad(self.alpha_1) # rad
-        # Get radiuses
-        r1 = D1 / 2 # mm
-        r2 = D2 / 2 # mm
-        r_eye = D0 / 2 # mm
-        r_hub = D_hub / 2 # mm
-        r_shaft = D_shaft / 2
-        r_volute = (D2 + 2 * s_rad) / 2 # mm
-        # If splitter blades are present, get their radius and thicknesses
-        if self.splitter_blades:
-            r_splitter = self.D_splitter * 1e3 / 2 # mm
-            t_splitter_1 = self.t_splitter_1 * 1e3 # mm
-            t_splitter_2 = self.t_splitter_2 * 1e3 # mm
-        # If hub has the same diameter as impeller, get its radial clearance
-        if self.D_hub == self.D_2:
-            s_hub_rad = self.s_rad_hub * 1e3    # mm
-
-        # First create figure with two subplots - one subplot will be for top view and another for side view
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        alpha2 = np.deg2rad(self.alpha_2) # rad
 
         # Create base blade geometry at reference angular position, where x-axis is aligned with radial coordinates.
         # First get coordinates of the leading edge of the blade.
@@ -1342,7 +1318,11 @@ class BarskePump:
             blade_inner_point_1
         ])
         # Splitter leading edges are straight and tangent to D_splitter, without sharpening
+        splitter_polygon = None
         if self.splitter_blades:
+            r_splitter = self.D_splitter * 1e3 / 2 # mm
+            t_splitter_1 = self.t_splitter_1 * 1e3 # mm
+            t_splitter_2 = self.t_splitter_2 * 1e3 # mm
             splitter_polygon = np.array([
                 [r_splitter, -t_splitter_1 / 2],
                 [r_splitter, t_splitter_1 / 2],
@@ -1350,72 +1330,6 @@ class BarskePump:
                 [r2, -t_splitter_2 / 2],
                 [r_splitter, -t_splitter_1 / 2]
             ])
-        # Create blade rotation function to get coordinates when blade geometry is rotated by given angle
-        def rotate_points(points, angle):
-            rotation_matrix = np.array([
-                [np.cos(angle), -np.sin(angle)],
-                [np.sin(angle), np.cos(angle)]
-            ])
-            return points @ rotation_matrix.T
-        blade_pitch_angle = 2 * np.pi / self.n_blades
-        rotation_offset = blade_pitch_angle / 2
-
-        # Plot top view geometry
-        ax_top = axes[0]
-        theta = np.linspace(0, 2 * np.pi, 300)
-        ax_top.plot(r_eye * np.cos(theta), r_eye * np.sin(theta), label="Impeller eye", linestyle='--')
-        ax_top.plot(r_hub * np.cos(theta), r_hub * np.sin(theta), label="Impeller hub")
-        ax_top.plot(r_volute * np.cos(theta), r_volute * np.sin(theta), label="Pump volute")
-        # Plot all blades
-        for i in range(self.n_blades):
-            angle = rotation_offset + i * blade_pitch_angle
-            rotated_blade = rotate_points(blade_polygon, angle)
-            if i == 0:
-                ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1], label="Impeller blades")
-            else:
-                ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1])
-
-        # Plot one splitter blade halfway between each pair of main blades
-        if self.splitter_blades:
-            for i in range(self.n_blades):
-                angle = rotation_offset + (i + 0.5) * blade_pitch_angle
-                rotated_splitter = rotate_points(splitter_polygon, angle)
-                if i == 0:
-                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1], label="Splitter blades")
-                else:
-                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1])
-
-        # Create diffuser geometry
-        x0 = -r2
-        # Choose positive y0 so throat_point_2 lies on volute radius
-        y0 = np.sqrt((r2 + s_rad)**2 - (-r2 + (D3 / 2))**2)
-        throat_point_1 = np.array([x0 - (D3 / 2), y0])
-        throat_point_2 = np.array([x0 + (D3 / 2), y0])
-        outlet_point_1 = np.array([x0 - (D4 / 2), y0 + L_diffuser])
-        outlet_point_2 = np.array([x0 + (D4 / 2), y0 + L_diffuser])
-        # Create diffuser polygon
-        diffuser_polygon = np.array([
-            throat_point_2,
-            outlet_point_2,
-            outlet_point_1,
-            throat_point_1
-        ])
-        # Plot the diffuser
-        ax_top.plot(diffuser_polygon[:, 0], diffuser_polygon[:, 1], label="Pump diffuser")
-
-        # Set graph options
-        ax_top.set_title("Top view")
-        ax_top.set_xlabel("x (mm)")
-        ax_top.set_ylabel("y (mm)")
-        ax_top.grid(True, which="major")
-        ax_top.grid(True, which="minor", linestyle=":")
-        ax_top.minorticks_on()
-        ax_top.legend(loc="upper right")
-        ax_top.set_aspect("equal")
-
-        # Plot side view geometry now in the next subfigure
-        ax_side = axes[1]
-
 
         # Create blade geometry. First create blade polygon for the case when hub diameter does not cover the whole
         # impeller
@@ -1457,10 +1371,8 @@ class BarskePump:
                 blade_side_point_0,
             ])
 
-        # Plot it
-        ax_side.plot(blade_side_polygon[:, 0], blade_side_polygon[:, 1], label="Impeller blade")
-
         # Trim the main blade side profile at D_splitter to give the splitter a straight leading edge
+        splitter_side_polygon = None
         if self.splitter_blades:
             splitter_side_points = []
             for point_1, point_2 in zip(blade_side_polygon[:-1], blade_side_polygon[1:]):
@@ -1470,8 +1382,203 @@ class BarskePump:
                 if (point_1[0] < r_splitter) != (point_2[0] < r_splitter):
                     fraction = (r_splitter - point_1[0]) / (point_2[0] - point_1[0])
                     splitter_side_points.append(point_1 + fraction * (point_2 - point_1))
+            # Start the splitter profile at its upper leading edge, as for a main blade
+            splitter_side_points.insert(0, splitter_side_points.pop())
             splitter_side_points.append(splitter_side_points[0])
             splitter_side_polygon = np.array(splitter_side_points)
+
+        # Return the closed main and optional splitter profiles
+        return blade_polygon, blade_side_polygon, splitter_polygon, splitter_side_polygon
+
+    def __get_casing_plot_profile(self, blade_side_polygon):
+        """Calculate the meridional casing profile in millimeters for geometry plots."""
+        # Get the casing radii and clearances in millimeters
+        r1 = self.D_1 * 1e3 / 2 # mm
+        r_eye = self.D_0 * 1e3 / 2 # mm
+        r_hub = self.D_hub * 1e3 / 2 # mm
+        r_shaft = self.D_shaft * 1e3 / 2 # mm
+        s_ax = self.s_ax * 1e3 # mm
+        s_rad = self.s_rad * 1e3 # mm
+        l_shaft = 2 * s_ax # mm
+
+        # Get the blade edges next to the casing from either side profile
+        leading_edge = blade_side_polygon[0]
+        lower_trailing_edge, upper_trailing_edge = blade_side_polygon[-3:-1]
+
+        # Now create pump casing geometry. First consider option if there is no step change in geometry.
+        if self.alpha_1 != 90 or self.D_hub != self.D_2:
+            # Points next to the shaft
+            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
+            casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
+            # Point at the inner diameter of the blades
+            casing_point_2 = np.array([r1, -s_ax])
+            # Points next to the trailing edge
+            casing_point_3 = np.array([lower_trailing_edge[0], lower_trailing_edge[1] - s_ax])
+            casing_point_4 = np.array([lower_trailing_edge[0] + s_rad, lower_trailing_edge[1] - s_ax])
+            casing_point_5 = np.array([upper_trailing_edge[0] + s_rad, upper_trailing_edge[1] + s_ax])
+            casing_point_6 = np.array([upper_trailing_edge[0], upper_trailing_edge[1] + s_ax])
+            # Point next to the leading edge
+            casing_point_7 = np.array([leading_edge[0], leading_edge[1] + s_ax])
+            # Point next to the impeller eye
+            y_eye = casing_point_6[1] + (casing_point_7[1] - casing_point_6[1]) * (r_eye - casing_point_6[0]) \
+                    / (casing_point_7[0] - casing_point_6[0])
+            casing_point_8 = np.array([r_eye, y_eye])
+            # Create pump casing polygon
+            casing_polygon = np.array([
+                casing_point_0,
+                casing_point_1,
+                casing_point_2,
+                casing_point_3,
+                casing_point_4,
+                casing_point_5,
+                casing_point_6,
+                casing_point_7,
+                casing_point_8
+            ])
+        # Now consider pump geometry if there is a step change in the casing
+        elif self.D_hub == self.D_2:
+            # Points at the shaft
+            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
+            casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
+            # Now get radius of the intermediate points
+            r_w = r_hub + self.s_rad_hub * 1e3
+            # Get intermediate points
+            casing_point_2 = np.array([r_w, -s_ax])
+            casing_point_3 = np.array([r_w, lower_trailing_edge[1] - s_ax])
+            # Get casing points around trailing edge
+            casing_point_4 = np.array([lower_trailing_edge[0], lower_trailing_edge[1] - s_ax])
+            casing_point_5 = np.array([lower_trailing_edge[0] + s_rad, lower_trailing_edge[1] - s_ax])
+            casing_point_6 = np.array([upper_trailing_edge[0] + s_rad, upper_trailing_edge[1] + s_ax])
+            casing_point_7 = np.array([upper_trailing_edge[0], upper_trailing_edge[1] + s_ax])
+            # Point next to the leading edge
+            casing_point_8 = np.array([leading_edge[0] + s_rad, leading_edge[1] + s_ax])
+            # Point next to the impeller eye
+            y_eye = casing_point_7[1] + (casing_point_8[1] - casing_point_7[1]) * (r_eye - casing_point_7[0]) \
+                    / (casing_point_8[0] - casing_point_7[0])
+            casing_point_9 = np.array([r_eye, y_eye])
+            # Create pump casing polygon
+            casing_polygon = np.array([
+                casing_point_0,
+                casing_point_1,
+                casing_point_2,
+                casing_point_3,
+                casing_point_4,
+                casing_point_5,
+                casing_point_6,
+                casing_point_7,
+                casing_point_8,
+                casing_point_9
+            ])
+
+        # Return the open casing profile between the shaft and the impeller eye
+        return casing_polygon
+
+    @staticmethod
+    def __get_diffuser_plot_position(r2, r_volute, D3):
+        """Calculate the diffuser throat center in the impeller plane."""
+        # Position the throat tangent to the impeller and put its inner point on the volute radius
+        x0 = -r2
+        y0 = np.sqrt(r_volute**2 - (x0 + D3 / 2)**2)
+        return x0, y0
+
+    @staticmethod
+    def __rotate_blade_points(points, angle):
+        """Rotate blade coordinates in the impeller plane by the given angle."""
+        # Calculate the rotation matrix and apply it to each point
+        rotation_matrix = np.array([
+            [np.cos(angle), -np.sin(angle)],
+            [np.sin(angle), np.cos(angle)]
+        ])
+        return points @ rotation_matrix.T
+
+    def plot_geometry_2D(self):
+        """Plot top and side views of the pump geometry in millimeters."""
+        # Get the top and side blade profiles
+        blade_polygon, blade_side_polygon, splitter_polygon, splitter_side_polygon = self.__get_blade_plot_profiles()
+
+        # Convert pump dimensions from meters to millimeters
+        D0 = self.D_0 * 1e3 # mm
+        D2 = self.D_2 * 1e3 # mm
+        D3 = self.D_3 * 1e3 # mm
+        D4 = self.D_4 * 1e3 # mm
+        D_hub = self.D_hub * 1e3 # mm
+        D_shaft = self.D_shaft * 1e3 # mm
+        L_diffuser = self.L_diffuser * 1e3 # mm
+        t0 = self.t_0 * 1e3 # mm
+        s_ax = self.s_ax * 1e3 # mm
+        s_rad = self.s_rad * 1e3 # mm
+        # Get radiuses
+        r2 = D2 / 2 # mm
+        r_eye = D0 / 2 # mm
+        r_hub = D_hub / 2 # mm
+        r_shaft = D_shaft / 2
+        r_volute = (D2 + 2 * s_rad) / 2 # mm
+        # First create figure with two subplots - one subplot will be for top view and another for side view
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        # Set the blade pitch and angular offset
+        blade_pitch_angle = 2 * np.pi / self.n_blades
+        rotation_offset = blade_pitch_angle / 2
+
+        # Plot top view geometry
+        ax_top = axes[0]
+        theta = np.linspace(0, 2 * np.pi, 300)
+        ax_top.plot(r_eye * np.cos(theta), r_eye * np.sin(theta), label="Impeller eye", linestyle='--')
+        ax_top.plot(r_hub * np.cos(theta), r_hub * np.sin(theta), label="Impeller hub")
+        ax_top.plot(r_volute * np.cos(theta), r_volute * np.sin(theta), label="Pump volute")
+        # Plot all blades
+        for i in range(self.n_blades):
+            angle = rotation_offset + i * blade_pitch_angle
+            rotated_blade = self.__rotate_blade_points(blade_polygon, angle)
+            if i == 0:
+                ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1], label="Impeller blades")
+            else:
+                ax_top.plot(rotated_blade[:, 0], rotated_blade[:, 1])
+
+        # Plot one splitter blade halfway between each pair of main blades
+        if self.splitter_blades:
+            for i in range(self.n_blades):
+                angle = rotation_offset + (i + 0.5) * blade_pitch_angle
+                rotated_splitter = self.__rotate_blade_points(splitter_polygon, angle)
+                if i == 0:
+                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1], label="Splitter blades")
+                else:
+                    ax_top.plot(rotated_splitter[:, 0], rotated_splitter[:, 1])
+
+        # Create diffuser geometry
+        x0, y0 = self.__get_diffuser_plot_position(r2, r_volute, D3)
+        throat_point_1 = np.array([x0 - (D3 / 2), y0])
+        throat_point_2 = np.array([x0 + (D3 / 2), y0])
+        outlet_point_1 = np.array([x0 - (D4 / 2), y0 + L_diffuser])
+        outlet_point_2 = np.array([x0 + (D4 / 2), y0 + L_diffuser])
+        # Create diffuser polygon
+        diffuser_polygon = np.array([
+            throat_point_2,
+            outlet_point_2,
+            outlet_point_1,
+            throat_point_1
+        ])
+        # Plot the diffuser
+        ax_top.plot(diffuser_polygon[:, 0], diffuser_polygon[:, 1], label="Pump diffuser")
+
+        # Set graph options
+        ax_top.set_title("Top view")
+        ax_top.set_xlabel("x (mm)")
+        ax_top.set_ylabel("y (mm)")
+        ax_top.grid(True, which="major")
+        ax_top.grid(True, which="minor", linestyle=":")
+        ax_top.minorticks_on()
+        ax_top.legend(loc="upper right")
+        ax_top.set_aspect("equal")
+
+        # Plot side view geometry now in the next subfigure
+        ax_side = axes[1]
+
+        # Plot the blade side profile
+        ax_side.plot(blade_side_polygon[:, 0], blade_side_polygon[:, 1], label="Impeller blade")
+
+        # Plot the splitter side profile if present
+        if self.splitter_blades:
             ax_side.plot(splitter_side_polygon[:, 0], splitter_side_polygon[:, 1],
                          label="Splitter blade", linestyle="--")
 
@@ -1505,74 +1612,8 @@ class BarskePump:
         # Plot it
         ax_side.plot(shaft_polygon[:, 0], shaft_polygon[:, 1], label="Impeller shaft")
 
-        # Now create pump casing geometry. First consider option if there is no step change in geometry.
-        if self.alpha_1 != 90 or self.D_hub != self.D_2:
-            # Points next to the shaft
-            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
-            casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
-            # Point at the inner diameter of the blades
-            casing_point_2 = np.array([r1, -s_ax])
-            # Points next to the trailing edge
-            casing_point_3 = np.array([blade_side_point_4[0], blade_side_point_4[1] - s_ax])
-            casing_point_4 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
-            casing_point_5 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
-            casing_point_6 = np.array([blade_side_point_5[0], blade_side_point_5[1] + s_ax])
-            # Point next to the leading edge
-            casing_point_7 = np.array([blade_side_point_0[0], blade_side_point_0[1] + s_ax])
-            # Point next to the impeller eye
-            y_eye = casing_point_6[1] + (casing_point_7[1] - casing_point_6[1]) * (r_eye - casing_point_6[0]) \
-                    / (casing_point_7[0] - casing_point_6[0])
-            casing_point_8 = np.array([r_eye, y_eye])
-            # Create pump casing polygon
-            casing_polygon = np.array([
-                casing_point_0,
-                casing_point_1,
-                casing_point_2,
-                casing_point_3,
-                casing_point_4,
-                casing_point_5,
-                casing_point_6,
-                casing_point_7,
-                casing_point_8
-            ])
-        # Now consider pump geometry if there is a step change in the casing
-        elif self.D_hub == self.D_2:
-            # Points at the shaft
-            casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
-            # Get spacing between hub and casing
-            s_ax_hub = s_ax
-            casing_point_1 = np.array([r_shaft * 1.05, -s_ax_hub])
-            # Now get radius of the intermediate points
-            r_w = r_hub + s_hub_rad
-            # Get intermediate points
-            casing_point_2 = np.array([r_w, -s_ax_hub])
-            casing_point_3 = np.array([r_w, blade_side_point_4[1] - s_ax])
-            # Get casing points around trailing edge
-            casing_point_4 = np.array([blade_side_point_4[0], blade_side_point_4[1] - s_ax])
-            casing_point_5 = np.array([blade_side_point_4[0] + s_rad, blade_side_point_4[1] - s_ax])
-            casing_point_6 = np.array([blade_side_point_5[0] + s_rad, blade_side_point_5[1] + s_ax])
-            casing_point_7 = np.array([blade_side_point_5[0], blade_side_point_5[1] + s_ax])
-            # Point next to the leading edge
-            casing_point_8 = np.array([blade_side_point_0[0] + s_rad, blade_side_point_0[1] + s_ax])
-            # Point next to the impeller eye
-            y_eye = casing_point_7[1] + (casing_point_8[1] - casing_point_7[1]) * (r_eye - casing_point_7[0]) \
-                    / (casing_point_8[0] - casing_point_7[0])
-            casing_point_9 = np.array([r_eye, y_eye])
-            # Create pump casing polygon
-            casing_polygon = np.array([
-                casing_point_0,
-                casing_point_1,
-                casing_point_2,
-                casing_point_3,
-                casing_point_4,
-                casing_point_5,
-                casing_point_6,
-                casing_point_7,
-                casing_point_8,
-                casing_point_9
-            ])
-
-        # Plot it
+        # Plot the pump casing
+        casing_polygon = self.__get_casing_plot_profile(blade_side_polygon)
         ax_side.plot(casing_polygon[:, 0], casing_polygon[:, 1], label="Pump casing")
 
         # Set graph options
@@ -1588,6 +1629,142 @@ class BarskePump:
         # Show figure
         plt.tight_layout()
         plt.show()
+
+    def plot_geometry_3D(self):
+        """Plot the impeller, volute and diffuser in millimeters in an interactive Plotly browser window.
+
+        Call after sizing the pump with 'size_dimensions' or assigning geometry with 'assign_dimensions'.
+        """
+        # Get the blade profiles and the meridional casing profile used in the 2D plot
+        blade_polygon, blade_side_polygon, splitter_polygon, splitter_side_polygon = self.__get_blade_plot_profiles()
+        casing_polygon = self.__get_casing_plot_profile(blade_side_polygon)
+
+        # Create a Plotly figure and add triangulated surfaces with component labels on hover
+        fig = go.Figure()
+
+        # Add each component mesh to the Plotly figure, skipping collapsed triangles.
+        def add_mesh(vertices, faces, name, color, opacity=1.0, legendgroup=None, showlegend=True):
+            # Filter triangles whose vertices coincide when a ring or blade edge collapses
+            triangles = vertices[faces]
+            normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+            area_tolerance = np.finfo(float).eps * np.max(np.ptp(vertices, axis=0))**2
+            faces = faces[np.linalg.norm(normals, axis=1) > area_tolerance]
+            # Keep dimensions in millimeters and group the hub and blades under one legend entry
+            fig.add_trace(go.Mesh3d(x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2],
+                                    i=faces[:, 0], j=faces[:, 1], k=faces[:, 2], name=name, color=color,
+                                    opacity=opacity, legendgroup=legendgroup, showlegend=showlegend,
+                                    lighting=dict(ambient=0.65, diffuse=0.75, specular=0.2),
+                                    hovertemplate=name + "<br>x: %{x:.2f} mm<br>y: %{y:.2f} mm"
+                                                       "<br>z: %{z:.2f} mm<extra></extra>"))
+
+        # Triangulate between successive sections for blades and surfaces of revolution.
+        def get_ring_faces(sections):
+            # Wrap the last vertex of each section back to the first to close the seam
+            section_size = sections.shape[1]
+            start = sections[:-1].ravel()
+            next_corner = np.roll(sections[:-1], -1, axis=1).ravel()
+            next_section = start + section_size
+            return np.vstack((np.column_stack((start, next_corner, next_section)),
+                              np.column_stack((next_corner, next_corner + section_size, next_section))))
+
+        # Build a closed mesh from the top and side profiles of a main or splitter blade.
+        def get_blade_mesh(plan_polygon, side_polygon):
+            # The two plan edges give the tangential bounds at each radial station
+            pressure_edge = plan_polygon[[0, 3]]
+            suction_edge = plan_polygon[:3]
+            r_inlet, r_outlet = pressure_edge[:, 0]
+            corner_radii = suction_edge[:, 0]
+            # The side profile gives the upper edge and the lower segments on either side of the hub
+            upper_edge = side_polygon[[0, -2]]
+            lower_edge = side_polygon[1:-2]
+            rings = []
+            for point_1, point_2 in zip(lower_edge[:-1], lower_edge[1:]):
+                # Keep the vertical shoulder at the hub, including its two different axial positions
+                if point_1[0] == point_2[0] and r_inlet <= point_1[0] <= r_outlet:
+                    radii = np.array([point_1[0], point_2[0]])
+                    z_lower = np.array([point_1[1], point_2[1]])
+                else:
+                    # Limit the segment to the plan profile and split it at the sharpening corner
+                    r_start = max(r_inlet, point_1[0])
+                    r_end = min(r_outlet, point_2[0])
+                    if r_start >= r_end:
+                        continue
+                    interior_corners = corner_radii[(r_start < corner_radii) & (corner_radii < r_end)]
+                    radii = np.concatenate(([r_start], interior_corners, [r_end]))
+                    z_lower = np.interp(radii, [point_1[0], point_2[0]], [point_1[1], point_2[1]])
+                # Build a four-corner section at each radius from the tangential and axial bounds
+                y_pressure = np.interp(radii, pressure_edge[:, 0], pressure_edge[:, 1])
+                y_suction = np.interp(radii, suction_edge[:, 0], suction_edge[:, 1])
+                z_upper = np.interp(radii, upper_edge[:, 0], upper_edge[:, 1])
+                x = np.broadcast_to(radii[:, None], (len(radii), 4))
+                y = np.column_stack((y_pressure, y_suction, y_suction, y_pressure))
+                z = np.column_stack((z_lower, z_lower, z_upper, z_upper))
+                rings.append(np.stack((x, y, z), axis=-1))
+
+            # Triangulate the four sides between sections and cap the leading and trailing edges
+            vertices = np.concatenate(rings).reshape(-1, 3)
+            sections = np.arange(len(vertices)).reshape(-1, 4)
+            inlet_faces = sections[0][[[0, 2, 1], [0, 3, 2]]]
+            outlet_faces = sections[-1][[[0, 1, 2], [0, 2, 3]]]
+            faces = np.vstack((get_ring_faces(sections), inlet_faces, outlet_faces))
+            return vertices, faces
+
+        # Sample each revolution at the same azimuths and join the final point to the first
+        azimuths = np.linspace(0, 2 * np.pi, 128, endpoint=False)
+        cosine, sine = np.cos(azimuths), np.sin(azimuths)
+
+        # Join circular sections and plot the resulting hub, volute or diffuser mesh.
+        def add_ring_mesh(x, y, z, name, color, opacity=1.0, legendgroup=None):
+            # Assemble the coordinates at each azimuth and join the circular sections
+            vertices = np.stack(np.broadcast_arrays(x, y, z), axis=-1)
+            sections = np.arange(vertices.shape[0] * len(azimuths)).reshape(-1, len(azimuths))
+            add_mesh(vertices.reshape(-1, 3), get_ring_faces(sections), name, color, opacity, legendgroup)
+
+        # Revolve the hub profile from the axis out to its rim and back to close both faces
+        r_hub = self.D_hub * 1e3 / 2 # mm
+        t0 = self.t_0 * 1e3 # mm
+        hub_radii = np.array([0, r_hub, r_hub, 0])[:, None]
+        hub_z = np.array([0, 0, t0, t0])[:, None]
+        add_ring_mesh(hub_radii * cosine, hub_radii * sine, hub_z, "Impeller", "blue", legendgroup="Impeller")
+
+        # Rotate the main blade mesh at the same pitch and offset as in the 2D plot
+        blade_pitch = 2 * np.pi / self.n_blades
+        blade_rows = [(blade_polygon, blade_side_polygon, "Impeller blade", 0.5)]
+        # Put each splitter halfway between two main blades if splitters are present
+        if self.splitter_blades:
+            blade_rows.append((splitter_polygon, splitter_side_polygon, "Splitter blade", 1.0))
+        for plan, side, name, offset in blade_rows:
+            vertices, faces = get_blade_mesh(plan, side)
+            for i in range(self.n_blades):
+                angle = (i + offset) * blade_pitch
+                blade_xy = self.__rotate_blade_points(vertices[:, :2], angle)
+                add_mesh(np.column_stack((blade_xy, vertices[:, 2])), faces, f"{name} {i + 1}", "blue",
+                         legendgroup="Impeller", showlegend=False)
+
+        # Revolve the open casing profile around the rotation axis to form the transparent volute
+        casing_radii, casing_z = casing_polygon.T[:, :, None]
+        add_ring_mesh(casing_radii * cosine, casing_radii * sine, casing_z, "Pump volute", "grey", opacity=0.2)
+
+        # Position the throat as in the top view and center the diffuser axially on the impeller outlet
+        r2 = self.D_2 * 1e3 / 2 # mm
+        r_volute = r2 + self.s_rad * 1e3 # mm
+        D3 = self.D_3 * 1e3 # mm
+        D4 = self.D_4 * 1e3 # mm
+        x0, y0 = self.__get_diffuser_plot_position(r2, r_volute, D3)
+        z0 = np.mean(blade_side_polygon[-3:-1, 1])
+        # Draw only the cone wall from the throat to the outlet as a separate surface
+        diffuser_radii = np.array([D3 / 2, D4 / 2])[:, None]
+        diffuser_y = np.array([y0, y0 + self.L_diffuser * 1e3])[:, None]
+        add_ring_mesh(x0 + diffuser_radii * cosine, diffuser_y, z0 - diffuser_radii * sine,
+                      "Pump diffuser", "grey", opacity=0.2)
+
+        # Keep the same scale on all axes and allow orbiting and scroll zoom in the browser
+        fig.update_layout(title="Pump 3D geometry", template="plotly_white",
+                          scene=dict(aspectmode="data", dragmode="orbit", xaxis_title="x (mm)",
+                                     yaxis_title="y (mm)", zaxis_title="z (mm)",
+                                     camera=dict(eye=dict(x=1.55, y=1.9, z=1.55))),
+                          margin=dict(l=15, r=15, b=25, t=45))
+        fig.show(renderer="browser", config=dict(scrollZoom=True, displaylogo=False, responsive=True))
 
     def print_analysis_results(self, analysis_results):
         """A method to print results of the analysis

@@ -59,7 +59,8 @@ I wrote this whole library by myself. LLM was only used for the generation of th
 2. Call `size_dimensions(...)` once at the design point. This calculates and stores the pump geometry and design
    coefficients.
 3. Call `analyse(...)` at the design point or at off-design combinations of mass flow and speed.
-4. Optionally call `verify_design()`, `print_dimensions()`, `plot_geometry()` or `print_analysis_results(...)`.
+4. Optionally call `verify_design()`, `print_dimensions()`, `plot_geometry_2D()`, `plot_geometry_3D()` or
+   `print_analysis_results(...)`.
 
 #### Literature represented in the implementation
 
@@ -229,6 +230,18 @@ records the pass/fail flags.
 The analysis dictionary also exposes head components, coefficients, pressures, velocities, temperature, power
 components, efficiencies and axial and radial loads. `print_analysis_results(...)` formats these fields as a table.
 
+#### Geometry plots
+
+After calling `size_dimensions(...)` or `assign_dimensions(...)` on a `BarskePump` instance, use
+`pump.plot_geometry_2D()` for Matplotlib top and side views in millimeters.
+
+![Barske pump top and side views from the example](images/barske-pump-geometry-2d.png)
+
+Use `pump.plot_geometry_3D()` to open an interactive Plotly view in your browser. The blue impeller is visible
+through the transparent grey volute, and the diffuser is drawn as a separate truncated cone.
+
+![Barske pump 3D geometry from the example](images/barske-pump-geometry-3d.png)
+
 ### PumpSystem
 
 `PumpSystem` in `DynamicPumps/PumpSystem.py` coordinates one or more hydraulic stages. Construct it with an ordered
@@ -260,6 +273,8 @@ A performance map is generated in this order:
 
 The current `DynamicPumps/example.py` follows this exact sequence for a single Barske pump. The same sequence applies
 to a multistage list because the map is generated from aggregate system results.
+
+![Pump performance map from the example](images/pump-system-map.png)
 
 ### Fluid
 
