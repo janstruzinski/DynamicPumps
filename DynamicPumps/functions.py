@@ -4,6 +4,8 @@ from scipy.optimize import toms748
 def get_dP_from_H(fluid, H, p_0, T_0):
     """A function to get pressure rise from head.
 
+    A pressure drop is bounded by the minimum absolute pressure supplied by the fluid model, when available.
+
     :param Fluid fluid: Fluid object
     :param float or int H: Pump head, m.
     :param float or int p_0: Initial pressure with respect to which pump head is given, Pa.
@@ -22,6 +24,14 @@ def get_dP_from_H(fluid, H, p_0, T_0):
     # Ensure bracketing of root in case of negative pressure rise
     lower_bound = min(0, 2*dp_estimate)
     upper_bound = max(0, 2*dp_estimate)
+    # Cap the bounds such that only valid pressures are passed on to CoolProp
+    if H < 0:
+        p_min = fluid.get_min_pressure(p_0, T_0)
+        if p_min is not None and lower_bound <= p_min - p_0:
+            lower_bound = p_min - p_0
+            if lower_bound >= 0 or residual(lower_bound) > 0:
+                raise ValueError(f"Head {H:g} m requires an outlet pressure below "
+                                 f"{p_min:g} Pa absolute at {T_0:g} K, which is not accepted by CoolProp")
     # If H is zero, then dP is also zero
     if H == 0: dp = 0
     # Otherwise solve for dp

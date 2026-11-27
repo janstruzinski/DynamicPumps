@@ -112,6 +112,29 @@ class Fluid:
         else:
             return self.vapor_pressure
 
+    def get_min_pressure(self, p, T):
+        """Return the minimum absolute pressure in Pa for a CoolProp pressure drop at fixed T.
+
+        Constant-property fluids return None because they do not have any pressure bounds for the model.
+        """
+        if not self.use_coolprop:
+            return None
+
+        # Get the minimum absolute pressure supported by CoolProp
+        state = self.coolprop_table
+        p_min = state.keyed_output(CoolProp.iP_min)
+
+        # Check whether liquid-vapor saturation is defined at this temperature
+        if state.Ttriple() <= T < state.T_critical():
+            # Get the saturation pressure from the saturated liquid state
+            state.update(CoolProp.QT_INPUTS, 0, T)
+            p_saturation = state.p()
+            # Use the liquid-side limit if the inlet pressure is at or above saturation
+            if p >= p_saturation:
+                # Stay above the relative P,T saturation tolerance of 1e-6
+                p_min = max(p_min, p_saturation * (1 + 2e-6))
+        return p_min
+
     def get_specific_heat(self, p, T):
         """A method to get specific heat of the fluid.
 

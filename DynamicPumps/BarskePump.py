@@ -631,8 +631,9 @@ class BarskePump:
         # Assign design analysis inputs. Other design properties are obtained after finding BEP.
         self.eta_losses_design = eta_losses # -
         self.K_factor_design = K_factor # -
-        self.no_prerotation_design = None
         self.default_analysis_method = "Lock"
+        self.no_prerotation_design = False  # Use the prerotation assumption for the Barske head coefficient, when it
+        # is calculated after analysing the impeller with Lock's method
 
         if Q_start <= 0:
             warnings.simplefilter("error", UserWarning)
@@ -1123,8 +1124,9 @@ class BarskePump:
         # Calculate pump efficiency
         eta_static = mdot * H_static_real * self.g / P_total # -
         eta_total = P_h_useful / P_total # -
-        # Calculate outlet temperature
-        mdot_dummy = max(mdot, 1e-6)
+        # Calculate outlet temperature. The calculated values are capped at those corresponding to 1e-3 kg/s, due to
+        # unrealistically high values otherwise. Values can be still to high, but this avoids the failure.
+        mdot_dummy = max(mdot, 1e-3)
         T_outlet = T_upstream + (P_h_losses + P_f_total) / (mdot_dummy * fluid.get_specific_heat(p_inlet, T_upstream)) # K
 
         # Determine torque acting on the impeller
@@ -1275,6 +1277,90 @@ class BarskePump:
             headers=["Parameter", "Value", "Unit", "Description"],
             tablefmt="github",
             floatfmt=".2f"
+        ))
+
+    def print_analysis_results(self, analysis_results):
+        """A method to print results of the analysis
+
+        :param dict analysis_results: Dictionary created with 'analyse' method.
+        """
+
+        # Create abberviation for the analysis results
+        r = analysis_results
+
+        # Create rows
+        rows = [
+            ["method", r["method"], "-", "Analysis method"],
+            ["fluid", r["fluid"].name, "-", "Fluid used for analysis"],
+            ["RPM", r["RPM"], "1/min", "Rotations per minute"],
+            ["mdot", r["mdot"], "kg/s", "Mass flow rate"],
+            ["Q", r["Q"]*1e3, "L/s", "Volumetric flow rate"],
+            ["dp", r["dp"] * 1e-5, "bar", "Pressure rise across pump"],
+
+            ["flow_coefficient_inlet", r["flow_coefficient_inlet"], "-", "Flow coefficient at impeller inlet"],
+            ["flow_coefficient_outlet", r["flow_coefficient_outlet"], "-", "Flow coefficient at diffuser throat"],
+            ["static_head_coefficient", r["static_head_coefficient"], "-", "Static head coefficient"],
+
+            ["H_total_real", r["H_total_real"], "m", "Real total head"],
+            ["H_static_real", r["H_static_real"], "m", "Real static head"],
+            ["H_losses", r["H_losses"], "m", "Head losses"],
+            ["H_total_ideal", r["H_total_ideal"], "m", "Ideal total head"],
+            ["H_static_ideal", r["H_static_ideal"], "m", "Ideal static head"],
+
+            ["P_h_useful", r["P_h_useful"] * 1e-3, "kW", "Useful hydraulic power"],
+            ["P_h_losses", r["P_h_losses"] * 1e-3, "kW", "Hydraulic losses power"],
+            ["P_h_total", r["P_h_total"] * 1e-3, "kW", "Total hydraulic power"],
+            ["P_total", r["P_total"] * 1e-3, "kW", "Total pump power"],
+            ["P_f_impeller", r["P_f_impeller"] * 1e-3, "kW", "Impeller friction power"],
+            ["P_f_total", r["P_f_total"] * 1e-3, "kW", "Total friction power"],
+
+            ["eta_total", r["eta_total"], "-", "Total efficiency"],
+            ["eta_static", r["eta_static"], "-", "Static efficiency"],
+            ["eta_losses", r["eta_losses"], "-", "Fraction of diffuser dynamic head lost"],
+
+            ["T_upstream", r["T_upstream"], "K", "Upstream temperature"],
+            ["rho", r["rho"], "kg/m^3", "Fluid density"],
+
+            ["p_upstream", r["p_upstream"] * 1e-5, "bar", "Upstream pressure"],
+            ["p_inlet", r["p_inlet"] * 1e-5, "bar", "Pressure at impeller eye"],
+            ["p_0", r["p_0"] * 1e-5, "bar", "Pressure at impeller eye"],
+            ["p_shaft", r["p_shaft"] * 1e-5, "bar", "Pressure at impeller shaft"],
+            ["p_hub", r["p_hub"] * 1e-5, "bar", "Pressure at the edge of impeller hub"],
+            ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
+            ["p_4", r["p_4"] * 1e-5, "bar", "Pressure at diffuser outlet"],
+
+            ["v_inlet", r["v_inlet"], "m/s", "Velocity in inlet pipe"],
+            ["v_0", r["v_0"], "m/s", "Velocity at impeller eye"],
+
+            ["u_1", r["u_1"], "m/s", "Leading edge blade velocity"],
+            ["v_1ax", r["v_1ax"], "m/s", "Absolute axial velocity at impeller inlet"],
+            ["v_1m", r["v_1m"], "m/s", "Absolute meridional velocity at impeller inlet"],
+            ["w_1", r["w_1"], "m/s", "Relative velocity at impeller inlet"],
+
+            ["u_2", r["u_2"], "m/s", "Blade tip velocity"],
+            ["w_2", r["w_2"], "m/s", "Relative flow velocity at the impeller outlet"],
+            ["v_3", r["v_3"], "m/s", "Velocity in diffuser throat"],
+            ["v_4", r["v_4"], "m/s", "Velocity at diffuser outlet"],
+
+            ["T_4", r["T_4"], "K", "Outlet temperature"],
+
+            ["F_ax", r["F_ax"], "N", "Axial force"],
+            ["F_rad", r["F_rad"], "N", "Radial force"],
+            ["Torque", r["Torque"], "N*m", "Pump torque"],
+        ]
+
+        # Postprocess table so that numbers to three digital places are printed
+        def format(x):
+            return f"{x:.3f}" if isinstance(x, (int, float)) else x
+        rows = [[format(v) for v in row] for row in rows]
+
+        # Print table
+        print("\n ANALYSIS RESULTS:")
+        print(tabulate(
+            rows,
+            headers=["Parameter", "Value", "Unit", "Description"],
+            tablefmt="github",
+            floatfmt=".3f"
         ))
 
     def __get_blade_plot_profiles(self):
@@ -1765,87 +1851,3 @@ class BarskePump:
                                      camera=dict(eye=dict(x=1.55, y=1.9, z=1.55))),
                           margin=dict(l=15, r=15, b=25, t=45))
         fig.show(renderer="browser", config=dict(scrollZoom=True, displaylogo=False, responsive=True))
-
-    def print_analysis_results(self, analysis_results):
-        """A method to print results of the analysis
-
-        :param dict analysis_results: Dictionary created with 'analyse' method.
-        """
-
-        # Create abberviation for the analysis results
-        r = analysis_results
-
-        # Create rows
-        rows = [
-            ["method", r["method"], "-", "Analysis method"],
-            ["fluid", r["fluid"].name, "-", "Fluid used for analysis"],
-            ["RPM", r["RPM"], "1/min", "Rotations per minute"],
-            ["mdot", r["mdot"], "kg/s", "Mass flow rate"],
-            ["Q", r["Q"]*1e3, "L/s", "Volumetric flow rate"],
-            ["dp", r["dp"] * 1e-5, "bar", "Pressure rise across pump"],
-
-            ["flow_coefficient_inlet", r["flow_coefficient_inlet"], "-", "Flow coefficient at impeller inlet"],
-            ["flow_coefficient_outlet", r["flow_coefficient_outlet"], "-", "Flow coefficient at diffuser throat"],
-            ["static_head_coefficient", r["static_head_coefficient"], "-", "Static head coefficient"],
-
-            ["H_total_real", r["H_total_real"], "m", "Real total head"],
-            ["H_static_real", r["H_static_real"], "m", "Real static head"],
-            ["H_losses", r["H_losses"], "m", "Head losses"],
-            ["H_total_ideal", r["H_total_ideal"], "m", "Ideal total head"],
-            ["H_static_ideal", r["H_static_ideal"], "m", "Ideal static head"],
-
-            ["P_h_useful", r["P_h_useful"] * 1e-3, "kW", "Useful hydraulic power"],
-            ["P_h_losses", r["P_h_losses"] * 1e-3, "kW", "Hydraulic losses power"],
-            ["P_h_total", r["P_h_total"] * 1e-3, "kW", "Total hydraulic power"],
-            ["P_total", r["P_total"] * 1e-3, "kW", "Total pump power"],
-            ["P_f_impeller", r["P_f_impeller"] * 1e-3, "kW", "Impeller friction power"],
-            ["P_f_total", r["P_f_total"] * 1e-3, "kW", "Total friction power"],
-
-            ["eta_total", r["eta_total"], "-", "Total efficiency"],
-            ["eta_static", r["eta_static"], "-", "Static efficiency"],
-            ["eta_losses", r["eta_losses"], "-", "Fraction of diffuser dynamic head lost"],
-
-            ["T_upstream", r["T_upstream"], "K", "Upstream temperature"],
-            ["rho", r["rho"], "kg/m^3", "Fluid density"],
-
-            ["p_upstream", r["p_upstream"] * 1e-5, "bar", "Upstream pressure"],
-            ["p_inlet", r["p_inlet"] * 1e-5, "bar", "Pressure at impeller eye"],
-            ["p_0", r["p_0"] * 1e-5, "bar", "Pressure at impeller eye"],
-            ["p_shaft", r["p_shaft"] * 1e-5, "bar", "Pressure at impeller shaft"],
-            ["p_hub", r["p_hub"] * 1e-5, "bar", "Pressure at the edge of impeller hub"],
-            ["p_2", r["p_2"] * 1e-5, "bar", "Pressure at impeller outlet"],
-            ["p_4", r["p_4"] * 1e-5, "bar", "Pressure at diffuser outlet"],
-
-            ["v_inlet", r["v_inlet"], "m/s", "Velocity in inlet pipe"],
-            ["v_0", r["v_0"], "m/s", "Velocity at impeller eye"],
-
-            ["u_1", r["u_1"], "m/s", "Leading edge blade velocity"],
-            ["v_1ax", r["v_1ax"], "m/s", "Absolute axial velocity at impeller inlet"],
-            ["v_1m", r["v_1m"], "m/s", "Absolute meridional velocity at impeller inlet"],
-            ["w_1", r["w_1"], "m/s", "Relative velocity at impeller inlet"],
-
-            ["u_2", r["u_2"], "m/s", "Blade tip velocity"],
-            ["w_2", r["w_2"], "m/s", "Relative flow velocity at the impeller outlet"],
-            ["v_3", r["v_3"], "m/s", "Velocity in diffuser throat"],
-            ["v_4", r["v_4"], "m/s", "Velocity at diffuser outlet"],
-
-            ["T_4", r["T_4"], "K", "Outlet temperature"],
-
-            ["F_ax", r["F_ax"], "N", "Axial force"],
-            ["F_rad", r["F_rad"], "N", "Radial force"],
-            ["Torque", r["Torque"], "N*m", "Pump torque"],
-        ]
-
-        # Postprocess table so that numbers to three digital places are printed
-        def format(x):
-            return f"{x:.3f}" if isinstance(x, (int, float)) else x
-        rows = [[format(v) for v in row] for row in rows]
-
-        # Print table
-        print("\n ANALYSIS RESULTS:")
-        print(tabulate(
-            rows,
-            headers=["Parameter", "Value", "Unit", "Description"],
-            tablefmt="github",
-            floatfmt=".3f"
-        ))

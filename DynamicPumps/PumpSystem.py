@@ -70,7 +70,7 @@ class PumpSystem:
 
         # Update outlet variables
         p_total_outlet = p_0
-        T_outlet = p_0
+        T_outlet = T_0
 
         # Calculate total to total and static to total efficiency for the whole pump system
         eta_total = P_h_useful / P_total # -
@@ -183,7 +183,12 @@ class PumpSystem:
             maximum efficiency points towards higher RPM curves. By default, False.
         :param bool shaft_power: If True, plots the summed stage shaft power in kW on the right axis.
             By default, False.
+        :raises ValueError: If the sweep has fewer than two RPM or two mass-flow values, or no sweep was run.
         """
+
+        # Check that the sweep has enough points to draw efficiency contours
+        if self.sweep_results is None or min(self.sweep_results[0].shape) < 2:
+            raise ValueError("A pump map requires a sweep with at least two RPM values and two mass-flow values.")
 
         # Extract sweep data
         RPM_grid, mdot_grid, dp_total, dp_static, H_total, H_static, eta_total, eta_static, P_total, Q = \
@@ -235,12 +240,11 @@ class PumpSystem:
                 max_efficiency_points.append([x[i, max_efficiency_idx], y[i, max_efficiency_idx],
                                               eta_i[max_efficiency_idx], RPM_line.get_color()])
 
-        # Efficiency contours need at least two speeds and two flow samples.
-        if min(y.shape) >= 2:
-            eta_masked = np.where(y > 0, eta_total, np.nan)
-            levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
-            contour = ax.contour(x, y, eta_masked, colors='0.5', linewidths=0.6, levels=levels)
-            ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
+        # Draw and label efficiency contours in the operating region
+        eta_masked = np.where(y > 0, eta_total, np.nan)
+        levels = np.linspace(0, np.nanmax(eta_masked), no_contours)
+        contour = ax.contour(x, y, eta_masked, colors='0.5', linewidths=0.6, levels=levels)
+        ax.clabel(contour, inline=True, fontsize=8, fmt="η = %.3f")
 
         # Plot additional isolines starting from maximum efficiency points towards higher RPM curves
         if additional_isolines:
