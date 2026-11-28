@@ -222,6 +222,7 @@ class BarskePump:
         :param string hub_sizing_method: Method used for sizing the hub diameter, either "diameter fraction" or
             "outlet diameter". If "diameter fraction", D_hub_over_D_1 will be used to calculate hub diameter.
              If "outlet diameter", given outlet diameter D_2 will be assigned and D_hub_over_D_1 will be calculated.
+            Hub diameters within a relative tolerance of 1e-12 of D_2 are set exactly to D_2.
         :param float or int t_hub: Hub thickness, m
         :param float or int t_LE: Leading edge (suction side) thickness, m
         :param float or int D_inlet: Inlet pipe diameter, m
@@ -241,7 +242,7 @@ class BarskePump:
         :param float or int D_hub_over_D_1: Ratio of D_hub (hub diameter) to D_1 (impeller inner diameter).
             By default, 1.1. Used in the case hub_sizing_method is "diameter fraction".
         :param float or int alpha_1: impeller blade backward edge angle wrt. rotation axis, degrees. By default,
-            90 degrees.
+            90 degrees. Full-diameter hubs are sized with alpha_1 equal to 90 degrees.
         :param float s_ax_over_D_2: Axial clearance s_ax over impeller diameter D_2. By default, 0.01.
             This is a recommended value by Barske in "The Design of Open Impeller Centrifugal Pumps".
         :param float or int v_0: Impeller eye axial velocity, used in "flow velocity" option for inlet_sizing_method.
@@ -268,7 +269,7 @@ class BarskePump:
             calculations when diameter_sizing_method is "Lobanoff", True or False. By default, False, as recommended in
             Lobanoff.
         :param float s_rad_hub_over_D_2: Ratio of hub radial clearance s_rad_hub to impeller diameter D_2.
-            By default, 0.01.
+            Used for full-diameter hubs. By default, 0.01.
         :param bool splitter_blades: Boolean whether one splitter blade is added halfway between each pair of main
             blades. By default, False. Splitter blades contribute to outlet blockage, but not inlet blockage or
             Lock's blade spacing to length ratio.
@@ -327,6 +328,11 @@ class BarskePump:
             warnings.simplefilter("error", UserWarning)
             warnings.warn("inlet_sizing_method must be 'Lobanoff', 'flow velocity', 'blade velocity' or"
                           " 'flow coefficient'")
+
+        # Check the hub sizing method before solving for the outlet diameter
+        if hub_sizing_method not in ("diameter fraction", "outlet diameter"):
+            warnings.simplefilter("error", UserWarning)
+            warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
 
         # If alpha_1 is not 90 degrees and D_hub_over_D_1 is different from 1 or outlet diameter sizing method is
         # used, alpha_1 will be changed to 90 degrees.
@@ -403,20 +409,7 @@ class BarskePump:
                 warnings.simplefilter("error", UserWarning)
                 warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
 
-            # Calculate the rest of the geometry. First calculate alpha_0, which is the angle of the forward edge of
-            # the impeller wrt. axis of rotation. dy_TE is how much trailing edge is lifted wrt. the hub. If hub is not
-            # the same as impeller diameter:
-            if hub_sizing_method == "diameter fraction":
-                dy_TE = np.tan((90 - self.alpha_1) * np.pi / 180) * ((D_2 - self.D_1) / 2) # m
-            # If hub diameter has impeller diameter, dy_TE is just t_hub
-            elif hub_sizing_method == "outlet diameter":
-                dy_TE = self.t_0
-            # Otherwise raise an error
-            else:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
-            alpha_0 = np.arctan(((D_2 - self.D_1) / 2) / (self.L_1 + self.t_0 - self.L_2 - dy_TE)) * 180 / np.pi # degrees
-            # Now calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
+            # Calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
             alpha_2 = np.arctan((Q_design / self.A_1) / u_1) * 180 / np.pi # degrees
 
@@ -436,7 +429,7 @@ class BarskePump:
                 warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
             return (H, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser,
-                    self.L_1, self.L_2, alpha_0, alpha_2, s_ax, s_rad)
+                    self.L_1, self.L_2, alpha_2, s_ax, s_rad)
 
         # Now solve the function for D_2 and get all other remaining dimensions. Typical head coefficient for Barske
         # impellers is about 1.4 (Gulich). Bisection is used, so the diameter range is from 1.1x inner diameter to
@@ -445,7 +438,28 @@ class BarskePump:
         self.D_2 = opt.toms748(f=lambda x: H_required - get_impeller_head(x)[0], a=self.D_1 * 1.1, b=2*D_2_estimate)
         # Now get the remaining results
         (H_design, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, self.A_4_over_A_3, self.L_diffuser,
-         self.L_1, self.L_2, self.alpha_0, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+         self.L_1, self.L_2, self.alpha_2, self.s_ax, self.s_rad) = get_impeller_head(self.D_2)
+
+        # Set the hub diameter using the converged outlet diameter
+        if hub_sizing_method == "diameter fraction":
+            self.D_hub = self.__set_hub_diameter(D_hub_over_D_1 * self.D_1, self.D_2) # m
+        else:
+            self.D_hub = self.D_2 # m
+        self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
+
+        # Set the hub clearance and trailing-edge position from the resulting geometry
+        if self.D_hub == self.D_2:
+            if s_rad_hub_over_D_2 is None:
+                raise ValueError("s_rad_hub_over_D_2 must be provided for a full-diameter hub.")
+            self.s_rad_hub = s_rad_hub_over_D_2 * self.D_2 # m
+            dy_TE = self.t_0 # m
+        else:
+            self.s_rad_hub = None
+            dy_TE = np.tan((90 - self.alpha_1) * np.pi / 180) * ((self.D_2 - self.D_1) / 2) # m
+
+        # Calculate the angle of the forward edge from the axial and radial distances
+        self.alpha_0 = np.arctan(((self.D_2 - self.D_1) / 2) / (self.L_1 + self.t_0 - self.L_2 - dy_TE)) \
+                       * 180 / np.pi # degrees
 
         # Size the splitter blades after the outlet diameter has converged. If not used, their geometry is None.
         if not self.splitter_blades:
@@ -477,22 +491,6 @@ class BarskePump:
         self.static_head_coefficient_BEP_Lock =\
             self.__analysis_Lock(u_2, u_1, Q_design, fluid, p_static_inlet, T_upstream, self.eta_losses_design,
                                  self.K_factor_design)[5]
-
-        # Size the hub. First if diameter fraction method is used.
-        if hub_sizing_method == "diameter fraction":
-            self.D_hub_over_D_1 = D_hub_over_D_1
-            self.D_hub = self.D_hub_over_D_1 * self.D_1  # m
-        # Then if outlet diameter method is used.
-        elif hub_sizing_method == "outlet diameter":
-            self.D_hub = self.D_2  # m
-            self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
-
-        # Size the gap between hub and the casing if hub has diameter of the impeller
-        if hub_sizing_method == "outlet diameter":
-            self.s_rad_hub = s_rad_hub_over_D_2 * self.D_2 # m
-        # Otherwise it is None
-        else:
-            self.s_rad_hub = None
 
         # With all dimensions known, full analysis can be performed to get more data about flow and performance.
         # At the same time, default analysis method can be set.
@@ -528,7 +526,7 @@ class BarskePump:
         :param float or int D_2: Impeller outlet diameter, m.
         :param float or int D_3: Diffuser throat diameter, m.
         :param float or int D_4: Diffuser outlet diameter, m.
-        :param float or int D_hub: Hub diameter, m.
+        :param float or int D_hub: Hub diameter, m. Diameters within a relative tolerance of 1e-12 of D_2 are set to D_2.
         :param float or int D_shaft: Shaft diameter, m.
         :param float or int L_1: Impeller width (axial length) at the inlet, m.
         :param float or int L_2: Impeller width at the outlet, m.
@@ -539,6 +537,7 @@ class BarskePump:
         :param float or int t_TE: Trailing edge (suction side) thickness, m.
         :param float or int alpha_0: Impeller blade forward edge angle wrt. rotation axis, degrees.
         :param float or int alpha_1: Impeller blade backward edge angle wrt. rotation axis, degrees.
+            Must be 90 degrees for a full-diameter hub.
         :param float or int alpha_2: Sharpening angle of the radial blade wrt. tangent of D_1, degrees.
         :param int n_blades: Number of main blades.
         :param float or int diffuser_angle: Full angle of the conical diffuser, degrees.
@@ -556,6 +555,16 @@ class BarskePump:
         :param float or int t_splitter_2: Splitter blade thickness at its outlet, m. By default, None. Required when
             splitter_blades is True and ignored otherwise.
         """
+
+        # Check if the hub equals impeller outer diameter
+        D_hub = self.__set_hub_diameter(D_hub, D_2) # m
+        if D_hub == D_2:
+            # If it does, alpha_1 must be 90 degrees, since hub is flat
+            if alpha_1 != 90:
+                raise ValueError("alpha_1 must be 90 degrees for a full-diameter hub (D_hub = D_2).")
+            # Also hub radial clearance must be provided
+            if s_rad_hub is None:
+                raise ValueError("s_rad_hub must be provided for a full-diameter hub.")
 
         # Assign required geometry
         self.D_inlet = D_inlet # m
@@ -589,17 +598,8 @@ class BarskePump:
         self.D_hub_over_D_1 = self.D_hub / self.D_1 # -
         self.L_1_over_D_1 = self.L_1 / self.D_1 # -
 
-        # Assign optional hub radial clearance
-        if self.D_hub == self.D_2:
-            if s_rad_hub is None:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("s_rad_hub cannot be None if D_hub is equal to D_2.")
-            self.s_rad_hub = s_rad_hub # m
-        elif self.D_hub < self.D_2:
-            self.s_rad_hub = None
-        else:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("D_hub must be smaller than or equal to D_2.")
+        # Assign the radial clearance for a full-diameter hub
+        self.s_rad_hub = s_rad_hub if D_hub == D_2 else None # m
 
         # Assign optional splitter blade geometry
         self.splitter_blades = splitter_blades
@@ -719,6 +719,20 @@ class BarskePump:
         self.print_analysis_results(self.analysis_results_design)
         # Finally, design can be verified
         self.verify_design()
+
+    @staticmethod
+    def __set_hub_diameter(D_hub, D_2):
+        """Set a full-diameter hub exactly to D_2 if it is within numerical tolerance or reject an oversized hub."""
+        # Treat differences from floating-point rounding as equality. In this case, hub diameter is set to outlet
+        # diameter.
+        if np.isclose(D_hub, D_2, rtol=1e-12, atol=0):
+            return D_2
+        # If hub diameter is smaller than outlet diameter, nothing is changed.
+        if D_hub < D_2:
+            return D_hub
+        # If it is above the outlet diameter, an error is raised.
+        raise ValueError(f"Hub diameter D_hub ({D_hub:.16g} m) must be at most the impeller outlet diameter "
+                         f"D_2 ({D_2:.16g} m).")
 
     def __calculate_friction_power(self, rho, kinematic_viscosity, RPM):
         """A method to calculate paddle power required to overcome friction for the impeller.
@@ -1492,7 +1506,7 @@ class BarskePump:
         lower_trailing_edge, upper_trailing_edge = blade_side_polygon[-3:-1]
 
         # Now create pump casing geometry. First consider option if there is no step change in geometry.
-        if self.alpha_1 != 90 or self.D_hub != self.D_2:
+        if self.D_hub != self.D_2:
             # Points next to the shaft
             casing_point_0 = np.array([r_shaft * 1.05, -l_shaft])
             casing_point_1 = np.array([r_shaft * 1.05, -s_ax])
