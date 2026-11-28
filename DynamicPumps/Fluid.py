@@ -21,10 +21,9 @@ class Fluid:
         # Save name of the fluid
         self.name = name
 
-        # First print an error if all arguments are None
+        # Raise an error if neither CoolProp nor constant properties are supplied
         if all(v is None for v in (CoolProp_name, density, dynamic_viscosity, vapor_pressure)):
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("All arguments are None")
+            raise ValueError("All arguments are None")
         # Print a warning if all argument are given. In such case, CoolProp will be used to overwrite other
         # properties.
         elif all(v is not None for v in (CoolProp_name, density, dynamic_viscosity, vapor_pressure)):
@@ -40,10 +39,6 @@ class Fluid:
             self.CoolProp_name = CoolProp_name
         # If name of the CoolProp fluid is not given, use constant properties
         elif CoolProp_name is None:
-            # If any of them is None, raise an error
-            if all(v is None for v in (density, dynamic_viscosity, vapor_pressure)):
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("Inputs 'density', 'dynamic_viscosity', 'vapor_pressure' are all None")
             # Set use_coolprop to flag
             self.use_coolprop = False
             # Assign constant properties

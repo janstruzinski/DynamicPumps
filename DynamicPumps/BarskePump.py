@@ -299,8 +299,7 @@ class BarskePump:
         # Splitter blades only contribute to the blade count at the impeller outlet
         n_blades_outlet = self.n_blades * (2 if self.splitter_blades else 1)
         if self.splitter_blades and D_splitter_over_D_1 is None:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("D_splitter_over_D_1 cannot be None if splitter_blades is True.")
+            raise ValueError("D_splitter_over_D_1 cannot be None if splitter_blades is True.")
 
         # Calculate angular speed of rotation
         omega = RPM * 2 * np.pi / 60 # rad / s
@@ -325,14 +324,12 @@ class BarskePump:
             self.D_0 = self.D_1 / self.D_1_over_D_0 # m
         # If wrong option was assigned, raise error
         else:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("inlet_sizing_method must be 'Lobanoff', 'flow velocity', 'blade velocity' or"
-                          " 'flow coefficient'")
+            raise ValueError("inlet_sizing_method must be 'Lobanoff', 'flow velocity', 'blade velocity' or"
+                             " 'flow coefficient'")
 
         # Check the hub sizing method before solving for the outlet diameter
         if hub_sizing_method not in ("diameter fraction", "outlet diameter"):
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
+            raise ValueError("hub_sizing_method must be 'diameter fraction' or 'outlet diameter'")
 
         # If alpha_1 is not 90 degrees and D_hub_over_D_1 is different from 1 or outlet diameter sizing method is
         # used, alpha_1 will be changed to 90 degrees.
@@ -374,14 +371,12 @@ class BarskePump:
             # If it is done with outlet diameter
             elif outlet_sizing_method == "outlet diameter":
                 if D_diffuser_outlet is None:
-                    warnings.simplefilter("error", UserWarning)
-                    warnings.warn("D_diffuser_outlet cannot be None if outlet_sizing_method is 'outlet diameter'.")
+                    raise ValueError("D_diffuser_outlet cannot be None if outlet_sizing_method is 'outlet diameter'.")
                 self.D_4 = D_diffuser_outlet # m
                 self.A_4 = np.pi * (self.D_4 / 2)**2 # m2
             # If wrong input was given
             else:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("outlet_sizing_method must be 'area ratio' or 'outlet diameter'.")
+                raise ValueError("outlet_sizing_method must be 'area ratio' or 'outlet diameter'.")
             diffuser_area_ratio = self.A_4 / self.A_3
             L_diffuser = ((self.D_4 - self.D_3) / 2) / np.tan((self.alpha_diffuser/2) * np.pi / 180) # m
 
@@ -406,8 +401,7 @@ class BarskePump:
                 self.L_2 = self.A_1 / ((D_2 * np.pi - n_blades_outlet * self.t_2) * self.V_r_ratio)  # m
                 self.A_2 = D_2 * self.L_2 * np.pi - n_blades_outlet * self.L_2 * self.t_2 # m^2
             else:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
+                raise ValueError("widths_sizing_method must be 'Gulich', 'diameter fraction' or 'Rocketdyne'")
 
             # Calculate the sharpening angle of the suction side wrt. tangent of D_1. It is the same as local flow
             # angle. It is assumed that the fluid flows through whole perimeter of D_1.
@@ -425,8 +419,7 @@ class BarskePump:
             elif diameter_sizing_method == "Lobanoff":
                 H = self.__analysis_Lobanoff(u_1, u_2, Q_design)[0]
             else:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
+                raise ValueError("diameter_sizing_method must be 'Lock' or 'Lobanoff'")
 
             return (H, u_2, self.D_3, self.D_4, self.A_1, self.A_2, self.A_3, self.A_4, diffuser_area_ratio, L_diffuser,
                     self.L_1, self.L_2, alpha_2, s_ax, s_rad)
@@ -470,8 +463,7 @@ class BarskePump:
         else:
             self.D_splitter = D_splitter_over_D_1 * self.D_1 # m
             if not self.D_1 < self.D_splitter < self.D_2:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("D_splitter_over_D_1 must give D_1 < D_splitter < D_2.")
+                raise ValueError("D_splitter_over_D_1 must give D_1 < D_splitter < D_2.")
             self.D_splitter_over_D_1 = D_splitter_over_D_1 # -
             self.t_splitter_1 = self.t_1 + (self.t_2 - self.t_1) * (self.D_splitter - self.D_1) \
                                 / (self.D_2 - self.D_1) # m
@@ -610,11 +602,9 @@ class BarskePump:
             self.t_splitter_2 = None
         else:
             if D_splitter is None or t_splitter_1 is None or t_splitter_2 is None:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("D_splitter, t_splitter_1 and t_splitter_2 cannot be None if splitter_blades is True.")
+                raise ValueError("D_splitter, t_splitter_1 and t_splitter_2 cannot be None if splitter_blades is True.")
             if not self.D_1 < D_splitter < self.D_2:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("D_splitter must give D_1 < D_splitter < D_2.")
+                raise ValueError("D_splitter must give D_1 < D_splitter < D_2.")
             self.D_splitter = D_splitter # m
             self.D_splitter_over_D_1 = self.D_splitter / self.D_1 # -
             self.t_splitter_1 = t_splitter_1 # m
@@ -634,10 +624,6 @@ class BarskePump:
         self.default_analysis_method = "Lock"
         self.no_prerotation_design = False  # Use the prerotation assumption for the Barske head coefficient, when it
         # is calculated after analysing the impeller with Lock's method
-
-        if Q_start <= 0:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("Q_start must be greater than zero.")
 
         # It is desirable to find Best Efficiency Point (BEP) to determine stage coefficients at design point.
         # Calculate quantities which remain constant while searching for BEP
@@ -660,6 +646,10 @@ class BarskePump:
             eta_static = mdot * H_static_real * self.g / P_total # -
             return eta_static
 
+        # Ensure initial Q given is not zero
+        if Q_start <= 0:
+            raise ValueError("Q_start must be greater than zero.")
+
         # Starting from the user-given estimate, find an upper bound of the columetric flow which encloses the
         # efficiency maximum. This will allow to use bracketing scheme for finding BEP volumetric flow later on.
         Q_upper = Q_start # m^3 / s
@@ -671,8 +661,7 @@ class BarskePump:
             Q_upper /= 2
             eta_upper = get_static_efficiency(Q_upper)
         else:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("Could not find positive static efficiency starting from Q_start.")
+            raise RuntimeError("Could not find positive static efficiency starting from Q_start.")
         # In case Q_upper is below BEP volumetric flow value, double Q_upper until it is above.
         # First check if efficiency at halved flow is higher.
         eta_lower = get_static_efficiency(Q_upper / 2)
@@ -687,16 +676,14 @@ class BarskePump:
                     break
                 eta_upper = eta_trial
             else:
-                warnings.simplefilter("error", UserWarning)
-                warnings.warn("Could not bracket the maximum static efficiency.")
+                raise RuntimeError("Could not bracket the maximum static efficiency.")
 
         # Now the BEP flow should be somewhere between 0 and Q_upper.
         # Bracketing scheme can be used to efficiently find the exact value.
         solution = opt.minimize_scalar(fun=lambda Q: -get_static_efficiency(Q), bounds=(0, Q_upper), method="bounded",
                                        options={"xatol": max(Q_upper * 1e-8, 1e-12)})
         if not solution.success:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("BEP volumetric flow solution did not converge.")
+            raise RuntimeError("BEP volumetric flow solution did not converge.")
         Q_design = solution.x # m^3 / s
 
         # Calculate design coefficients and perform full analysis at BEP
@@ -1040,8 +1027,7 @@ class BarskePump:
             (H_static_real, H_total_real, H_loss, H_total_ideal, H_static_ideal, head_coefficient_static,
              head_coefficient_total, H_s) = self.__analysis_Barske(u_1, u_2, v_inlet, v_3, v_4, no_prerotation)
         else:
-            warnings.simplefilter("error", UserWarning)
-            warnings.warn("analysis_method must be 'Lock' or 'Barske'")
+            raise ValueError("analysis_method must be 'Lock' or 'Barske'")
 
         # Calculate p_2. To get difference between static head at the inlet and static head at the outlet, dynamic head
         # at the inlet must be added to static head due to forced vortex in the impeller
@@ -1170,60 +1156,65 @@ class BarskePump:
         print("\nVeryfying pump geometry. Recommended guidelines were taken from literature and semi-empirical data,\n"
               "so it may happen that not all can be satisfied. These guidelines should be used for informative purpose.\n")
         # Verify if axial velocity at the inlet is within recommended range
-        if not (5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m):
+        self.design_checks["eye_velocity"] = \
+            bool(5 * self.feet_to_m <= self.analysis_results_design["v_0"] <= 12 * self.feet_to_m)
+        if not self.design_checks["eye_velocity"]:
             print(f"Impeller eye diameter v0 is {self.analysis_results_design['v_0']:.3f} m/s."
                   f" It should be between {5*self.feet_to_m:.3f} m/s and {12*self.feet_to_m:.3f} m/s.")
-            self.design_checks["eye_velocity"] = False
         # Verify if inner blade velocity is smaller than recommended by Barske
-        if self.analysis_results_design["u_1"] > 150 * self.feet_to_m:
+        self.design_checks["LE_velocity"] = bool(self.analysis_results_design["u_1"] <= 150 * self.feet_to_m)
+        if not self.design_checks["LE_velocity"]:
             print(f"Inner blade speeed u1 is {self.analysis_results_design['u_1']:.3f} m/s."
                   f" It should be <= {150 * self.feet_to_m:.3f} m/s.")
-            self.design_checks["LE_velocity"] = False
         # Verify if diameter ratio is greater than recommended by Barske
-        if self.D_2 / self.D_1 <= 1.5:
+        self.design_checks["diameter_ratio"] = bool(self.D_2 / self.D_1 > 1.5)
+        if not self.design_checks["diameter_ratio"]:
             print(f"Diameter ratio D2/D1 is {self.D_2 / self.D_1:.3f}."
                   f"It should be > 1.5.")
-            self.design_checks["diameter_ratio"] = False
         # Verify axial widths. Barske did not take into account blade thicknesses, which are taken into account here.
         # The first was derived from L_1 => 0.25 D_1 recommendation from Barske,
         # while the second was derived from L_2 => L_1 * D_1 / D_2
         L_1_recommended = (0.25 * np.pi * self.D_1**2) / (np.pi * self.D_1 - self.n_blades * self.t_1)
-        if self.L_1 < L_1_recommended:
+        self.design_checks["LE_width"] = bool(self.L_1 >= L_1_recommended)
+        if not self.design_checks["LE_width"]:
             print(f"Axial width L1 at impeller inlet is {self.L_1 * 1000:.3f} mm."
                   f" It should be above or equal {L_1_recommended * 1000:.3f} mm.")
-            self.design_checks["LE_width"] = False
-        n_blades_outlet = self.n_blades * (2 if self.splitter_blades else 1)
-        L_2_recommended = self.A_1 / (self.D_2 * np.pi - n_blades_outlet * self.t_2)
-        if self.L_2 < L_2_recommended:
+        # Calculate the minimum outlet width using the actual blade and splitter thicknesses
+        outlet_blockage = self.n_blades * self.t_2
+        if self.splitter_blades:
+            outlet_blockage += self.n_blades * self.t_splitter_2
+        L_2_recommended = self.A_1 / (self.D_2 * np.pi - outlet_blockage)
+        self.design_checks["TE_width"] = bool(self.L_2 >= L_2_recommended)
+        if not self.design_checks["TE_width"]:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
                   f" It should be above or equal {L_2_recommended * 1000:.3f} mm.")
-            self.design_checks["TE_width"] = False
         # Verify that clearances are within recommended values. From Barske (pg. 7 of "The Design of Open Impeller
         # Centrifugal Pumps"), axial clearance should be 1% of D_2, but should not be greater than
         # 0.04 inch of larger pumps. From the empirical data from the same page, a linear equation for radial
         # clearance is derived, however it is just a guideline.
-        if self.s_ax > min(0.01 * self.D_2, 0.04 * 0.0254):
+        s_ax_max = min(0.01 * self.D_2, 0.04 * self.inch_to_m) # m
+        self.design_checks["axial_clearance"] = bool(self.s_ax <= s_ax_max)
+        if not self.design_checks["axial_clearance"]:
             print(f"Axial clearance s_ax is {self.s_ax * 1000:.3f} mm."
-                  f" It should be below {min(0.01 * self.D_2, 0.04 * 0.0254) * 1000:.3f} mm.")
-            self.design_checks["radial_clearance"] = False
-        if self.s_rad > self.__calcualate_radial_clearance(self.D_2):
-            self.design_checks["radial_clearance"] = False
+                  f" It should be below {s_ax_max * 1000:.3f} mm.")
+        s_rad_max = self.__calcualate_radial_clearance(self.D_2) # m
+        self.design_checks["radial_clearance"] = bool(self.s_rad <= s_rad_max)
+        if not self.design_checks["radial_clearance"]:
             print(f"Radial clearance s_rad is {self.s_rad * 1000:.3f} mm."
-                  f" Semi-empirical data indicates it should be"
-                  f" below {self.__calcualate_radial_clearance(self.D_2)*1000:.3f} mm.")
-        if self.L_2 < 3 * self.s_ax:
+                  f" Semi-empirical data indicates it should be below {s_rad_max * 1000:.3f} mm.")
+        self.design_checks["TE_width_clearance_ratio"] = bool(self.L_2 >= 3 * self.s_ax)
+        if not self.design_checks["TE_width_clearance_ratio"]:
             print(f"Axial width L2 at impeller outlet is {self.L_2 * 1000:.3f} mm."
                   f" It should be greater than 3s_ax = {3 * self.s_ax * 1000:.3f} mm.")
-            self.design_checks["TE_width_clearance_ratio"] = False
         # According to Gulich, throat diameter should be a bit smaller than TE width
-        if self.D_3 > self.L_2:
+        self.design_checks["D_3"] = bool(self.D_3 <= self.L_2)
+        if not self.design_checks["D_3"]:
             print(f"Throat diameter is {self.D_3 * 1000:.3f} mm."
                   f" It should be smaller than L_2 = {self.L_2 * 1000:.3f} mm.")
-            self.design_checks["D_3"] = False
 
     def print_dimensions(self):
         """A method to print pump's dimensions in a GitHub-style table"""
-        # Creat a function for safe handling of None
+        # Create a function for safe handling of None
         def safe(val, factor=1.0):
             return val * factor if val is not None else None
 
